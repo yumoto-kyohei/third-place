@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { LiveKitRoom, RoomAudioRenderer, useParticipants } from '@livekit/components-react';
 import '@livekit/components-styles';
 
-const TOKEN_SERVER_URL = 'http://localhost:3001';
+const TOKEN_SERVER_URL = import.meta.env.PROD
+  ? 'https://third-place.onrender.com'
+  : 'http://localhost:3001';
 
 function ParticipantList() {
   const participants = useParticipants();
