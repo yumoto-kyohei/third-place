@@ -1,6 +1,6 @@
 # third-place
 
-スマートフォンのブラウザで動く、複数人の音声通話＋（今後追加予定の）チャットアプリのプロトタイプ。
+スマートフォンのブラウザで動く、複数人の音声通話＋テキストチャットアプリのプロトタイプ。
 
 ## システム構成
 
@@ -25,19 +25,21 @@ WebRTCは本来1対1通話を前提とした技術で、複数人が同時に通
 ### フロントエンド（`client/`）
 
 - React 19 + Vite（ビルドツール）
-- `livekit-client` / `@livekit/components-react`: LiveKitのWeb SDKと、あらかじめ用意されたUIコンポーネント（`LiveKitRoom`, `RoomAudioRenderer`, `TrackToggle`, `useParticipants`, `useSpeakingParticipants`, `useTracks`, `VideoTrack`, `useDataChannel` 等）を利用
+- `livekit-client` / `@livekit/components-react`: LiveKitのWeb SDKと、あらかじめ用意されたUIコンポーネント（`LiveKitRoom`, `RoomAudioRenderer`, `TrackToggle`, `Chat`, `useParticipants`, `useSpeakingParticipants`, `useTracks`, `VideoTrack`, `useDataChannel`, `useRoomContext` 等）を利用
 - ルーム名は現時点で `lobby` に固定（複数ルームには未対応）
-- マイクの音声に加えて、画面共有（映像トラック）に対応。カメラ映像は未使用
+- マイクの音声・画面共有（映像トラック）・テキストチャットに対応。カメラ映像は未使用
 - 本番ビルドかどうかで接続先のトークンサーバーURLを切り替えている（`import.meta.env.PROD` で判定、`client/src/App.jsx`）
+- レイアウトはスマートフォンでの利用を主眼にモバイルファーストで実装（`index.css`）。ボタン・入力欄は最小44pxの高さでタップしやすいサイズに統一し、入力欄のフォントサイズは16px以上にしてiOS Safariでのフォーカス時自動ズームを防止。ビューポート高さは`100svh`（モバイルブラウザのアドレスバー表示/非表示による揺れに強い単位）を使用
 - コンポーネント構成:
   - `App.jsx`: 入室フォーム、トークン取得、`LiveKitRoom`への接続
-  - `CallScreen.jsx`: マイク／画面共有のトグルボタン、退出ボタン（`useRoomContext().disconnect()`）、参加者一覧（発話中は🔊表示）
+  - `CallScreen.jsx`: マイク／画面共有のトグルボタン、チャット表示切り替え、退出ボタン（`useRoomContext().disconnect()`）、参加者一覧（発話中は🔊表示）
   - `ScreenShareStage.jsx`: 画面共有中の映像（`useTracks([Track.Source.ScreenShare])`で検出）と、その上に重ねる描き込みオーバーレイの表示
   - `DrawingOverlay.jsx`: 画面共有映像の上に重ねる`<canvas>`。ペン（フリーハンド）／丸で囲む（楕円）／消しゴムの3ツールを提供し、LiveKitの**データチャネル**（`useDataChannel('draw', ...)`、`localParticipant`経由でP2PではなくSFU経由の低遅延メッセージング）でストローク情報を全参加者にブロードキャストし、誰の画面でも同じ描き込みが同期表示される
     - ツールは明示的に選択するまで無効（初期状態は`tool = null`で`<canvas>`は`pointerEvents: 'none'`）。ツールボタンはトグル式で、選択中のツールボタンをもう一度押すと解除される
     - 座標はキャンバスサイズに依存しないよう0〜1に正規化して送受信
     - 消しゴムは「ストローク単位」で消える方式（線や丸に触れると、その線・丸ごと削除）であり、部分消しではない
     - ペンの描画中の点（`pen-move`）はロスあり配信（`reliable:false`）、開始・終了・丸・消去・全消去はロスなし配信（`reliable:true`）
+- テキストチャットはLiveKit標準のチャット機能（`<Chat />`コンポーネント）をそのまま使用。独自のデータチャネル実装ではなく、LiveKit組み込みのメッセージング機構に乗っている。UIラベルは英語のまま（"Enter a message...", "Send"等）で日本語化はされていない
 
 ### バックエンド（`server/`）
 
@@ -104,8 +106,9 @@ npm run dev      # http://localhost:5173
 ## 現状の制約・今後の予定
 
 - ルームは `lobby` 1つのみ固定（複数ルーム・部屋作成機能は未実装）
-- 音声通話＋画面共有＋画面への描き込みまで実装済み。テキストチャット・カメラ映像・アバター表示・空間オーディオは未実装（今後追加予定）
+- 音声通話＋画面共有＋画面への描き込み＋テキストチャットまで実装済み。カメラ映像・アバター表示・空間オーディオは未実装（今後追加予定）
 - 画面共有は同時に1人のみ想定（複数人が同時共有した場合の表示制御は未実装、`ScreenShareStage`は最初の1トラックのみ表示）
 - 描き込みの色・太さは固定（ペンは赤、丸は橙、変更UIなし）
+- チャットのUIラベルは英語のまま（日本語化未対応）
 - CORSはオリジン無制限
 - 認証・ユーザー管理なし（表示名を自己申告するのみ）
