@@ -1,4 +1,10 @@
-import { RoomAudioRenderer, TrackToggle, useParticipants, useSpeakingParticipants } from '@livekit/components-react';
+import {
+  RoomAudioRenderer,
+  TrackToggle,
+  useParticipants,
+  useRoomContext,
+  useSpeakingParticipants,
+} from '@livekit/components-react';
 import { Track } from 'livekit-client';
 import ScreenShareStage from './ScreenShareStage';
 
@@ -20,11 +26,16 @@ function ParticipantList() {
 }
 
 export default function CallScreen() {
+  const room = useRoomContext();
+
   return (
     <div>
       <div style={{ display: 'flex', gap: '0.5rem', margin: '1rem' }}>
         <TrackToggle source={Track.Source.Microphone} />
         <TrackToggle source={Track.Source.ScreenShare} />
+        <button type="button" onClick={() => room.disconnect()}>
+          退出する
+        </button>
       </div>
       <ScreenShareStage />
       <ParticipantList />

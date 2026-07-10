@@ -31,9 +31,10 @@ WebRTCは本来1対1通話を前提とした技術で、複数人が同時に通
 - 本番ビルドかどうかで接続先のトークンサーバーURLを切り替えている（`import.meta.env.PROD` で判定、`client/src/App.jsx`）
 - コンポーネント構成:
   - `App.jsx`: 入室フォーム、トークン取得、`LiveKitRoom`への接続
-  - `CallScreen.jsx`: マイク／画面共有のトグルボタン、参加者一覧（発話中は🔊表示）
+  - `CallScreen.jsx`: マイク／画面共有のトグルボタン、退出ボタン（`useRoomContext().disconnect()`）、参加者一覧（発話中は🔊表示）
   - `ScreenShareStage.jsx`: 画面共有中の映像（`useTracks([Track.Source.ScreenShare])`で検出）と、その上に重ねる描き込みオーバーレイの表示
   - `DrawingOverlay.jsx`: 画面共有映像の上に重ねる`<canvas>`。ペン（フリーハンド）／丸で囲む（楕円）／消しゴムの3ツールを提供し、LiveKitの**データチャネル**（`useDataChannel('draw', ...)`、`localParticipant`経由でP2PではなくSFU経由の低遅延メッセージング）でストローク情報を全参加者にブロードキャストし、誰の画面でも同じ描き込みが同期表示される
+    - ツールは明示的に選択するまで無効（初期状態は`tool = null`で`<canvas>`は`pointerEvents: 'none'`）。ツールボタンはトグル式で、選択中のツールボタンをもう一度押すと解除される
     - 座標はキャンバスサイズに依存しないよう0〜1に正規化して送受信
     - 消しゴムは「ストローク単位」で消える方式（線や丸に触れると、その線・丸ごと削除）であり、部分消しではない
     - ペンの描画中の点（`pen-move`）はロスあり配信（`reliable:false`）、開始・終了・丸・消去・全消去はロスなし配信（`reliable:true`）

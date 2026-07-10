@@ -32,7 +32,9 @@ export default function DrawingOverlay() {
   const canvasRef = useRef(null);
   const strokesRef = useRef(new Map());
   const drawingRef = useRef(null);
-  const [tool, setTool] = useState('pen');
+  const [tool, setTool] = useState(null);
+
+  const toggleTool = (name) => setTool((current) => (current === name ? null : name));
 
   const redraw = () => {
     const canvas = canvasRef.current;
@@ -124,6 +126,7 @@ export default function DrawingOverlay() {
   };
 
   const handlePointerDown = (e) => {
+    if (!tool) return;
     e.target.setPointerCapture(e.pointerId);
     const { x, y } = pointFromEvent(e);
 
@@ -138,7 +141,7 @@ export default function DrawingOverlay() {
       strokesRef.current.set(id, { tool: 'pen', points: [{ x, y }] });
       drawingRef.current = { tool: 'pen', id };
       send(encode({ type: 'pen-start', id, x, y }), { reliable: true });
-    } else {
+    } else if (tool === 'circle') {
       drawingRef.current = { tool: 'circle', id, x1: x, y1: y };
       strokesRef.current.set(id, { tool: 'circle', x1: x, y1: y, x2: x, y2: y });
     }
@@ -183,7 +186,15 @@ export default function DrawingOverlay() {
     <div style={{ position: 'absolute', inset: 0 }}>
       <canvas
         ref={canvasRef}
-        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', touchAction: 'none', cursor: 'crosshair' }}
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          touchAction: 'none',
+          cursor: tool ? 'crosshair' : 'default',
+          pointerEvents: tool ? 'auto' : 'none',
+        }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -201,13 +212,13 @@ export default function DrawingOverlay() {
           borderRadius: 8,
         }}
       >
-        <button type="button" onClick={() => setTool('pen')} style={{ fontWeight: tool === 'pen' ? 'bold' : 'normal' }}>
+        <button type="button" onClick={() => toggleTool('pen')} style={{ fontWeight: tool === 'pen' ? 'bold' : 'normal' }}>
           ✏️ ペン
         </button>
-        <button type="button" onClick={() => setTool('circle')} style={{ fontWeight: tool === 'circle' ? 'bold' : 'normal' }}>
+        <button type="button" onClick={() => toggleTool('circle')} style={{ fontWeight: tool === 'circle' ? 'bold' : 'normal' }}>
           ⭕ 丸で囲む
         </button>
-        <button type="button" onClick={() => setTool('eraser')} style={{ fontWeight: tool === 'eraser' ? 'bold' : 'normal' }}>
+        <button type="button" onClick={() => toggleTool('eraser')} style={{ fontWeight: tool === 'eraser' ? 'bold' : 'normal' }}>
           🧹 消しゴム
         </button>
         <button type="button" onClick={clearAll}>
