@@ -2,6 +2,8 @@
 
 スマートフォンのブラウザで動く、複数人の音声通話＋テキストチャットアプリのプロトタイプ。
 
+今後の開発目標である『通りとテント』アプリの全体仕様は [SPEC.md](SPEC.md) を参照。
+
 ## システム構成
 
 ```
@@ -32,7 +34,8 @@ WebRTCは本来1対1通話を前提とした技術で、複数人が同時に通
 - レイアウトはスマートフォンでの利用を主眼にモバイルファーストで実装（`index.css`）。ボタン・入力欄は最小44pxの高さでタップしやすいサイズに統一し、入力欄のフォントサイズは16px以上にしてiOS Safariでのフォーカス時自動ズームを防止。ビューポート高さは`100svh`（モバイルブラウザのアドレスバー表示/非表示による揺れに強い単位）を使用
 - コンポーネント構成:
   - `App.jsx`: 入室フォーム、トークン取得、`LiveKitRoom`への接続
-  - `CallScreen.jsx`: マイク／画面共有のトグルボタン、チャット表示切り替え、退出ボタン（`useRoomContext().disconnect()`）、参加者一覧（発話中は🔊表示）
+  - `CallScreen.jsx`: マイク／画面共有のトグルボタン、チャット表示切り替え、退出ボタン（`useRoomContext().disconnect()`）、テント内2D俯瞰ビュー
+  - `TentView.jsx`: テント内の2D俯瞰ビュー（SPEC §5.3・Phase 1）。参加者をアバター（現状は仮の丸＋表示名）として床面に配置し、自分のアバターはドラッグで移動できる。位置はLiveKitのデータチャネル（`useDataChannel('position', ...)`）で全参加者に同期。座標は床サイズ非依存の0〜1正規化、移動中は約10Hzのロスあり配信＋2秒ごとのハートビート再送（後から入室した人にも位置が伝わるように）。発話中は緑のリングで表示
   - `ScreenShareStage.jsx`: 画面共有中の映像（`useTracks([Track.Source.ScreenShare])`で検出）と、その上に重ねる描き込みオーバーレイの表示
   - `DrawingOverlay.jsx`: 画面共有映像の上に重ねる`<canvas>`。ペン（フリーハンド）／丸で囲む（楕円）／消しゴムの3ツールを提供し、LiveKitの**データチャネル**（`useDataChannel('draw', ...)`、`localParticipant`経由でP2PではなくSFU経由の低遅延メッセージング）でストローク情報を全参加者にブロードキャストし、誰の画面でも同じ描き込みが同期表示される
     - ツールは明示的に選択するまで無効（初期状態は`tool = null`で`<canvas>`は`pointerEvents: 'none'`）。ツールボタンはトグル式で、選択中のツールボタンをもう一度押すと解除される
@@ -67,7 +70,8 @@ third-place/
 ├── client/           React(Vite)フロントエンド。GitHub Pagesへデプロイ
 │   └── src/
 │       ├── App.jsx              入室フォーム・LiveKitRoomへの接続
-│       ├── CallScreen.jsx       マイク/画面共有ボタン・参加者一覧
+│       ├── CallScreen.jsx       マイク/画面共有ボタン・テント内ビュー
+│       ├── TentView.jsx         テント内2D俯瞰ビュー・アバター移動・位置同期
 │       ├── ScreenShareStage.jsx 画面共有映像の表示
 │       └── DrawingOverlay.jsx   画面共有上の描き込み（ペン/丸/消しゴム）とデータチャネル同期
 ├── server/           Express バックエンド。Renderへデプロイ

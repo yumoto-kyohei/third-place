@@ -3,29 +3,11 @@ import {
   Chat,
   RoomAudioRenderer,
   TrackToggle,
-  useParticipants,
   useRoomContext,
-  useSpeakingParticipants,
 } from '@livekit/components-react';
 import { Track } from 'livekit-client';
 import ScreenShareStage from './ScreenShareStage';
-
-function ParticipantList() {
-  const participants = useParticipants();
-  const speaking = useSpeakingParticipants();
-  const speakingIds = new Set(speaking.map((p) => p.identity));
-
-  return (
-    <ul style={{ padding: '1rem' }}>
-      {participants.map((p) => (
-        <li key={p.identity} style={{ fontWeight: speakingIds.has(p.identity) ? 'bold' : 'normal' }}>
-          {speakingIds.has(p.identity) ? '🔊 ' : ''}
-          {p.identity}
-        </li>
-      ))}
-    </ul>
-  );
-}
+import TentView from './TentView';
 
 export default function CallScreen() {
   const room = useRoomContext();
@@ -44,7 +26,7 @@ export default function CallScreen() {
         </button>
       </div>
       <ScreenShareStage />
-      <ParticipantList />
+      <TentView />
       {chatOpen && <Chat style={{ height: 320 }} />}
       <RoomAudioRenderer />
     </div>
