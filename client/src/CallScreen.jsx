@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
   Chat,
-  RoomAudioRenderer,
   TrackToggle,
   useLocalParticipant,
   useRoomContext,
@@ -9,6 +8,8 @@ import {
 import { Track } from 'livekit-client';
 import ScreenShareStage from './ScreenShareStage';
 import TentView from './TentView';
+import SpatialAudio from './SpatialAudio';
+import { TentStateProvider } from './TentState';
 import { AVATAR_TYPES, DEFAULT_AVATAR, isHumanAvatar } from './AvatarSprite';
 
 export default function CallScreen() {
@@ -27,7 +28,7 @@ export default function CallScreen() {
   }, [human, localParticipant]);
 
   return (
-    <div>
+    <TentStateProvider avatarType={avatarType}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', margin: '1rem', alignItems: 'center' }}>
         <div style={{ display: 'flex', gap: '0.25rem' }}>
           {AVATAR_TYPES.map((a) => (
@@ -62,9 +63,9 @@ export default function CallScreen() {
         </p>
       )}
       <ScreenShareStage />
-      <TentView avatarType={avatarType} />
+      <TentView />
       {chatOpen && <Chat style={{ height: 320 }} />}
-      <RoomAudioRenderer />
-    </div>
+      <SpatialAudio />
+    </TentStateProvider>
   );
 }
