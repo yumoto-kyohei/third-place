@@ -27,15 +27,17 @@ WebRTCは本来1対1通話を前提とした技術で、複数人が同時に通
 ### フロントエンド（`client/`）
 
 - React 19 + Vite（ビルドツール）
-- `livekit-client` / `@livekit/components-react`: LiveKitのWeb SDKと、あらかじめ用意されたUIコンポーネント（`LiveKitRoom`, `RoomAudioRenderer`, `TrackToggle`, `Chat`, `useParticipants`, `useSpeakingParticipants`, `useTracks`, `VideoTrack`, `useDataChannel`, `useRoomContext` 等）を利用
+- `livekit-client` / `@livekit/components-react`: LiveKitのWeb SDKと、あらかじめ用意されたUIコンポーネント（`LiveKitRoom`, `RoomAudioRenderer`, `TrackToggle`, `Chat`, `useParticipants`, `useSpeakingParticipants`, `useTracks`, `VideoTrack`, `useDataChannel`, `useRoomContext`, `useLocalParticipant` 等）を利用
 - ルーム名は現時点で `lobby` に固定（複数ルームには未対応）
 - マイクの音声・画面共有（映像トラック）・テキストチャットに対応。カメラ映像は未使用
+- マイクは入室時に自動要求せず、「人」アバターを選んで初めて使えるようにしている（SPEC 5.1: 石で居るだけならマイク不要）
 - 本番ビルドかどうかで接続先のトークンサーバーURLを切り替えている（`import.meta.env.PROD` で判定、`client/src/App.jsx`）
 - レイアウトはスマートフォンでの利用を主眼にモバイルファーストで実装（`index.css`）。ボタン・入力欄は最小44pxの高さでタップしやすいサイズに統一し、入力欄のフォントサイズは16px以上にしてiOS Safariでのフォーカス時自動ズームを防止。ビューポート高さは`100svh`（モバイルブラウザのアドレスバー表示/非表示による揺れに強い単位）を使用
 - コンポーネント構成:
   - `App.jsx`: 入室フォーム、トークン取得、`LiveKitRoom`への接続
-  - `CallScreen.jsx`: マイク／画面共有のトグルボタン、チャット表示切り替え、退出ボタン（`useRoomContext().disconnect()`）、テント内2D俯瞰ビュー
-  - `TentView.jsx`: テント内の2D俯瞰ビュー（SPEC §5.3・Phase 1）。参加者をアバター（現状は仮の丸＋表示名）として床面に配置し、自分のアバターはドラッグで移動できる。位置はLiveKitのデータチャネル（`useDataChannel('position', ...)`）で全参加者に同期。座標は床サイズ非依存の0〜1正規化、移動中は約10Hzのロスあり配信＋2秒ごとのハートビート再送（後から入室した人にも位置が伝わるように）。発話中は緑のリングで表示
+  - `CallScreen.jsx`: アバター切替ボタン（石/草/人）、マイク／画面共有のトグルボタン、チャット表示切り替え、退出ボタン（`useRoomContext().disconnect()`）、テント内2D俯瞰ビュー。非人間アバター選択中は`localParticipant.setMicrophoneEnabled(false)`でマイクを強制ミュートし、マイクボタンを非活性の「🔇 マイク」表示に置き換える
+  - `AvatarSprite.jsx`: アバターの見た目を集約したモジュール（SPEC F1。差し替え前提で分離）。石(🪨)・草(🌿)＝非人間（破線枠・話さないシグナル）、人(🧍)＝人型（実線枠・話す可能性あり）。α版の仮素材は絵文字。`AVATAR_TYPES` / `isHumanAvatar` / `DEFAULT_AVATAR`（=石）をエクスポート。種別変更時は`avatar-pop`アニメーションで軽い変化演出
+  - `TentView.jsx`: テント内の2D俯瞰ビュー（SPEC §5.3・Phase 1）。参加者を`AvatarSprite`として床面に配置し、自分のアバターはドラッグで移動できる。位置とアバター種別はLiveKitのデータチャネル（`useDataChannel('position', ...)`）で全参加者に同期（種別も同梱するので石↔人の変化が全員に即反映）。座標は床サイズ非依存の0〜1正規化、移動中は約10Hzのロスあり配信＋2秒ごとのハートビート再送（後から入室した人にも状態が伝わるように）。発話中は緑のリングで表示
   - `ScreenShareStage.jsx`: 画面共有中の映像（`useTracks([Track.Source.ScreenShare])`で検出）と、その上に重ねる描き込みオーバーレイの表示
   - `DrawingOverlay.jsx`: 画面共有映像の上に重ねる`<canvas>`。ペン（フリーハンド）／丸で囲む（楕円）／消しゴムの3ツールを提供し、LiveKitの**データチャネル**（`useDataChannel('draw', ...)`、`localParticipant`経由でP2PではなくSFU経由の低遅延メッセージング）でストローク情報を全参加者にブロードキャストし、誰の画面でも同じ描き込みが同期表示される
     - ツールは明示的に選択するまで無効（初期状態は`tool = null`で`<canvas>`は`pointerEvents: 'none'`）。ツールボタンはトグル式で、選択中のツールボタンをもう一度押すと解除される
@@ -70,8 +72,9 @@ third-place/
 ├── client/           React(Vite)フロントエンド。GitHub Pagesへデプロイ
 │   └── src/
 │       ├── App.jsx              入室フォーム・LiveKitRoomへの接続
-│       ├── CallScreen.jsx       マイク/画面共有ボタン・テント内ビュー
-│       ├── TentView.jsx         テント内2D俯瞰ビュー・アバター移動・位置同期
+│       ├── CallScreen.jsx       アバター切替/マイク/画面共有ボタン・テント内ビュー
+│       ├── AvatarSprite.jsx     アバターの見た目（石/草/人）・種別判定ヘルパー
+│       ├── TentView.jsx         テント内2D俯瞰ビュー・アバター移動・位置/種別同期
 │       ├── ScreenShareStage.jsx 画面共有映像の表示
 │       └── DrawingOverlay.jsx   画面共有上の描き込み（ペン/丸/消しゴム）とデータチャネル同期
 ├── server/           Express バックエンド。Renderへデプロイ
@@ -110,7 +113,7 @@ npm run dev      # http://localhost:5173
 ## 現状の制約・今後の予定
 
 - ルームは `lobby` 1つのみ固定（複数ルーム・部屋作成機能は未実装）
-- 音声通話＋画面共有＋画面への描き込み＋テキストチャットまで実装済み。カメラ映像・アバター表示・空間オーディオは未実装（今後追加予定）
+- 音声通話＋画面共有＋画面への描き込み＋テキストチャット＋テント内2Dビュー（アバター移動・石/草/人の切替）まで実装済み。空間オーディオ・テーブル分割・複数テント・通り画面は未実装（SPEC Phase 1〜の順で今後追加）
 - 画面共有は同時に1人のみ想定（複数人が同時共有した場合の表示制御は未実装、`ScreenShareStage`は最初の1トラックのみ表示）
 - 描き込みの色・太さは固定（ペンは赤、丸は橙、変更UIなし）
 - チャットのUIラベルは英語のまま（日本語化未対応）

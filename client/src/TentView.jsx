@@ -5,9 +5,10 @@ import {
   useParticipants,
   useSpeakingParticipants,
 } from '@livekit/components-react';
+import AvatarSprite, { DEFAULT_AVATAR } from './AvatarSprite';
 
 const SEND_INTERVAL_MS = 100; // 位置更新の送信間隔（約10Hz）
-const HEARTBEAT_MS = 2000; // 後から入室した人にも位置が伝わるよう定期再送する間隔
+const HEARTBEAT_MS = 2000; // 後から入室した人にも位置・アバターが伝わるよう定期再送する間隔
 
 function encode(obj) {
   return new TextEncoder().encode(JSON.stringify(obj));
@@ -22,7 +23,7 @@ function clamp01(v) {
   return Math.min(1, Math.max(0, v));
 }
 
-export default function TentView() {
+export default function TentView({ avatarType }) {
   const floorRef = useRef(null);
   const { localParticipant } = useLocalParticipant();
   const participants = useParticipants();
@@ -35,8 +36,12 @@ export default function TentView() {
   const myPosRef = useRef(myPos);
   myPosRef.current = myPos;
 
-  // 他の参加者の位置 { identity: {x, y} }
-  const [othersPos, setOthersPos] = useState({});
+  // 自分のアバター種別（親から受け取り、送信時に同梱する）
+  const myTypeRef = useRef(avatarType);
+  myTypeRef.current = avatarType;
+
+  // 他の参加者の状態 { identity: {x, y, type} }
+  const [others, setOthers] = useState({});
 
   const lastSentRef = useRef(0);
   const draggingRef = useRef(false);
@@ -44,27 +49,33 @@ export default function TentView() {
   const { send } = useDataChannel('position', (msg) => {
     const from = msg.from?.identity;
     if (!from || from === localParticipant.identity) return;
-    const { x, y } = decode(msg.payload);
-    setOthersPos((prev) => ({ ...prev, [from]: { x, y } }));
+    const { x, y, type } = decode(msg.payload);
+    setOthers((prev) => ({ ...prev, [from]: { x, y, type } }));
   });
 
-  const sendPosition = (pos, force = false) => {
+  const sendState = (pos, force = false) => {
     const now = Date.now();
     if (!force && now - lastSentRef.current < SEND_INTERVAL_MS) return;
     lastSentRef.current = now;
-    send(encode(pos), { reliable: false });
+    // 強制送信（入室直後・ハートビート・アバター変更）は確実に届くreliable、移動中の連続送信はロスあり
+    send(encode({ ...pos, type: myTypeRef.current }), { reliable: force });
   };
 
-  // 定期的に自分の位置を再送（後から入室した人向け）
+  // 定期的に自分の状態を再送（後から入室した人向け）
   useEffect(() => {
-    const id = setInterval(() => sendPosition(myPosRef.current, true), HEARTBEAT_MS);
+    const id = setInterval(() => sendState(myPosRef.current, true), HEARTBEAT_MS);
     return () => clearInterval(id);
   }, []);
 
-  // 入室直後に一度自分の位置を通知
+  // 入室直後に一度自分の状態を通知
   useEffect(() => {
-    sendPosition(myPosRef.current, true);
+    sendState(myPosRef.current, true);
   }, []);
+
+  // アバター種別が変わったら即座に周囲へ通知
+  useEffect(() => {
+    sendState(myPosRef.current, true);
+  }, [avatarType]);
 
   const posFromEvent = (e) => {
     const rect = floorRef.current.getBoundingClientRect();
@@ -79,20 +90,20 @@ export default function TentView() {
     draggingRef.current = true;
     const pos = posFromEvent(e);
     setMyPos(pos);
-    sendPosition(pos, true);
+    sendState(pos, true);
   };
 
   const handlePointerMove = (e) => {
     if (!draggingRef.current) return;
     const pos = posFromEvent(e);
     setMyPos(pos);
-    sendPosition(pos);
+    sendState(pos);
   };
 
   const handlePointerUp = () => {
     if (!draggingRef.current) return;
     draggingRef.current = false;
-    sendPosition(myPosRef.current, true);
+    sendState(myPosRef.current, true);
   };
 
   return (
@@ -113,7 +124,9 @@ export default function TentView() {
     >
       {participants.map((p) => {
         const isMe = p.identity === localParticipant.identity;
-        const pos = isMe ? myPos : othersPos[p.identity] || { x: 0.5, y: 0.5 };
+        const state = isMe ? myPos : others[p.identity];
+        const pos = state || { x: 0.5, y: 0.5 };
+        const type = isMe ? avatarType : state?.type || DEFAULT_AVATAR;
         const isSpeaking = speakingIds.has(p.identity);
         return (
           <div
@@ -136,15 +149,7 @@ export default function TentView() {
               transition: isMe ? 'none' : 'left 0.1s linear, top 0.1s linear',
             }}
           >
-            <div
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: '50%',
-                background: isMe ? 'var(--accent, #aa3bff)' : '#9aa0aa',
-                boxShadow: isSpeaking ? '0 0 0 4px rgba(52, 199, 89, 0.6)' : 'none',
-              }}
-            />
+            <AvatarSprite type={type} speaking={isSpeaking} />
             <span style={{ fontSize: 12, color: 'var(--text-h)', whiteSpace: 'nowrap' }}>
               {isSpeaking ? '🔊 ' : ''}
               {p.identity}

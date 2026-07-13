@@ -73,7 +73,6 @@ function App() {
       serverUrl={connectionInfo.url}
       token={connectionInfo.token}
       connect
-      audio
       onDisconnected={() => setConnectionInfo(null)}
       style={{ height: '100vh' }}
     >

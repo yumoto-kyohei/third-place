@@ -74,3 +74,17 @@ input {
   background: var(--bg);
   color: var(--text-h);
 }
+
+button:disabled {
+  opacity: 0.5;
+}
+
+/* アバター種別変更時の軽い演出（石→人などの変化を周囲にも見せる） */
+@keyframes avatar-pop {
+  from {
+    transform: scale(0.6);
+  }
+  to {
+    transform: scale(1);
+  }
+}
