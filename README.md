@@ -27,7 +27,7 @@ WebRTCは本来1対1通話を前提とした技術で、複数人が同時に通
 ### フロントエンド（`client/`）
 
 - React 19 + Vite（ビルドツール）
-- `livekit-client` / `@livekit/components-react`: LiveKitのWeb SDKと、あらかじめ用意されたUIコンポーネント（`LiveKitRoom`, `RoomAudioRenderer`, `TrackToggle`, `Chat`, `useParticipants`, `useSpeakingParticipants`, `useTracks`, `VideoTrack`, `useDataChannel`, `useRoomContext`, `useLocalParticipant` 等）を利用
+- `livekit-client` / `@livekit/components-react`: LiveKitのWeb SDKと、あらかじめ用意されたフック/コンポーネント（`LiveKitRoom`, `TrackToggle`, `useParticipants`, `useSpeakingParticipants`, `useTracks`, `useDataChannel`, `useRoomContext`, `useLocalParticipant`, `useChat` 等）を利用
 - ルーム名は現時点で `lobby` に固定（複数ルームには未対応）
 - マイクの音声・画面共有（映像トラック）・テキストチャットに対応。カメラ映像は未使用
 - マイクは入室時に自動要求せず、「人」アバターを選んで初めて使えるようにしている（SPEC 5.1: 石で居るだけならマイク不要）
@@ -40,6 +40,7 @@ WebRTCは本来1対1通話を前提とした技術で、複数人が同時に通
   - `TentState.jsx`: テント内の位置・アバター種別を管理しデータチャネル（`useDataChannel('position', ...)`）で同期する共有ストア（React Context）。TentView（描画）とSpatialAudio（音声）の両方が参照する。座標は床サイズ非依存の0〜1正規化、移動中は約10Hzのロスあり配信＋2秒ごとのハートビート再送（後から入室した人にも状態が伝わるように）。種別も同梱するので石↔人の変化が全員に即反映
   - `TentView.jsx`: テント内の2D俯瞰ビュー（SPEC §5.3・Phase 1）。`TentState`を参照して参加者を`AvatarSprite`として床面に配置し、自分のアバターはドラッグで移動できる。発話中は緑のリングで表示
   - `SpatialAudio.jsx`: 空間オーディオ（SPEC F2・本アプリの中核）。`RoomAudioRenderer`の代わりに、各参加者の音声トラックをWeb Audio API（`GainNode`＋`StereoPannerNode`）経由で再生し、`TentState`のアバター間距離で音量、左右位置でステレオパンを制御（近い人ほど明瞭、遠い人はほぼ無音、右にいる人は右から聞こえる）。Chrome向けに無音のaudio要素へも同ストリームを割り当てる定番ワークアラウンドを実施。向きによる強調・遠方トラックの購読停止（帯域節約）は未実装
+  - `ChatPanel.jsx`: テキストチャット（SPEC F6）。LiveKit標準の`<Chat>`はラベルが英語固定のため、`useChat`フックで日本語UI（「メッセージを入力…」「送信」等）を自作。石アバターでもチャットは可能（声を出せない段階の参加手段）
   - `ScreenShareStage.jsx`: 画面共有中の映像（`useTracks([Track.Source.ScreenShare])`で検出）と、その上に重ねる描き込みオーバーレイの表示
   - `DrawingOverlay.jsx`: 画面共有映像の上に重ねる`<canvas>`。ペン（フリーハンド）／丸で囲む（楕円）／消しゴムの3ツールを提供し、LiveKitの**データチャネル**（`useDataChannel('draw', ...)`、`localParticipant`経由でP2PではなくSFU経由の低遅延メッセージング）でストローク情報を全参加者にブロードキャストし、誰の画面でも同じ描き込みが同期表示される
     - ツールは明示的に選択するまで無効（初期状態は`tool = null`で`<canvas>`は`pointerEvents: 'none'`）。ツールボタンはトグル式で、選択中のツールボタンをもう一度押すと解除される
@@ -54,7 +55,7 @@ WebRTCは本来1対1通話を前提とした技術で、複数人が同時に通
 - `livekit-server-sdk`: `AccessToken` を使ってJWTを発行するだけの薄いAPI（`server/index.js`）
 - エンドポイントは `GET /api/token` の1つのみ。クエリパラメータ `identity`（表示名）を受け取り、`{ url, token }` をJSONで返す
 - 発行するトークンの権限（grant）: `roomJoin: true, canPublish: true, canSubscribe: true`（ルームは `lobby`固定）
-- CORSは `cors()` をデフォルト設定（オリジン制限なし）で有効化。プロトタイプ段階のため未制限だが、本来は許可オリジンを絞るべき
+- CORSは許可オリジンを限定（GitHub Pages本番 `https://yumoto-kyohei.github.io` とローカル開発 `http://localhost:5173` / `http://127.0.0.1:5173`）。環境変数 `ALLOWED_ORIGINS`（カンマ区切り）で上書き可能
 - ポートはRenderが注入する `process.env.PORT` を優先し、なければ `3001`（ローカル用）
 
 ### インフラ・ホスティング
@@ -79,6 +80,7 @@ third-place/
 │       ├── TentState.jsx        位置/アバター種別の共有ストア・データチャネル同期
 │       ├── TentView.jsx         テント内2D俯瞰ビュー・アバター移動
 │       ├── SpatialAudio.jsx     空間オーディオ（距離減衰＋ステレオパン）
+│       ├── ChatPanel.jsx        日本語テキストチャット（useChat）
 │       ├── ScreenShareStage.jsx 画面共有映像の表示
 │       └── DrawingOverlay.jsx   画面共有上の描き込み（ペン/丸/消しゴム）とデータチャネル同期
 ├── server/           Express バックエンド。Renderへデプロイ
@@ -120,6 +122,6 @@ npm run dev      # http://localhost:5173
 - 音声通話（空間オーディオ付き）＋画面共有＋画面への描き込み＋テキストチャット＋テント内2Dビュー（アバター移動・石/草/人の切替）まで実装済み。テーブル分割・複数テント・通り画面は未実装（SPEC Phase 2〜で今後追加）
 - 画面共有は同時に1人のみ想定（複数人が同時共有した場合の表示制御は未実装、`ScreenShareStage`は最初の1トラックのみ表示）
 - 描き込みの色・太さは固定（ペンは赤、丸は橙、変更UIなし）
-- チャットのUIラベルは英語のまま（日本語化未対応）
+- チャットは日本語UI（`ChatPanel.jsx`）。テント（ルーム）単位。テーブル単位チャットは未対応
 - CORSはオリジン無制限
 - 認証・ユーザー管理なし（表示名を自己申告するのみ）
