@@ -1,17 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useConnectionState, useDataChannel, useLocalParticipant } from '@livekit/components-react';
-import { ConnectionState } from 'livekit-client';
-
-// チャットは描き込み・位置同期と同じ useDataChannel（publishData）方式で実装する。
-// LiveKit標準の useChat（sendText/DataStreams）とは別経路で、既に動作実績のある仕組みに揃える。
-
-function encode(obj) {
-  return new TextEncoder().encode(JSON.stringify(obj));
-}
-
-function decode(payload) {
-  return JSON.parse(new TextDecoder().decode(payload));
-}
+import { useChatState } from './ChatState';
 
 function formatTime(ts) {
   try {
@@ -22,19 +10,10 @@ function formatTime(ts) {
 }
 
 export default function ChatPanel() {
-  const { localParticipant } = useLocalParticipant();
-  const connectionState = useConnectionState();
-  const connected = connectionState === ConnectionState.Connected;
-  const [messages, setMessages] = useState([]);
+  const { messages, sendMessage, connected } = useChatState();
   const [text, setText] = useState('');
   const [sendError, setSendError] = useState(false);
   const listRef = useRef(null);
-
-  const { send } = useDataChannel('chat', (msg) => {
-    const from = msg.from?.identity;
-    const data = decode(msg.payload);
-    setMessages((prev) => [...prev, { id: data.id, from: from || '不明', message: data.message, ts: data.ts }]);
-  });
 
   // 新着メッセージで最下部へスクロール
   useEffect(() => {
@@ -45,13 +24,10 @@ export default function ChatPanel() {
     e.preventDefault();
     const value = text.trim();
     if (!value || !connected) return;
-    const entry = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, message: value, ts: Date.now() };
     setText('');
     setSendError(false);
     try {
-      await send(encode(entry), { reliable: true });
-      // publishData は自分には配信されないので、自分の画面には即時に追加する
-      setMessages((prev) => [...prev, { ...entry, from: `${localParticipant.identity}（あなた）` }]);
+      await sendMessage(value);
     } catch (err) {
       console.error('メッセージの送信に失敗しました', err);
       setSendError(true);

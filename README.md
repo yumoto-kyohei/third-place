@@ -40,7 +40,8 @@ WebRTCは本来1対1通話を前提とした技術で、複数人が同時に通
   - `TentState.jsx`: テント内の位置・アバター種別を管理しデータチャネル（`useDataChannel('position', ...)`）で同期する共有ストア（React Context）。TentView（描画）とSpatialAudio（音声）の両方が参照する。座標は床サイズ非依存の0〜1正規化、移動中は約10Hzのロスあり配信＋2秒ごとのハートビート再送（後から入室した人にも状態が伝わるように）。種別も同梱するので石↔人の変化が全員に即反映。**接続完了（`useConnectionState` が `Connected`）まで一切publishしない** — 接続前に`publishData`を呼ぶとLiveKit内部の送信路（`publisherConnectionPromise`）が失敗状態でキャッシュされ、以降チャット含む全データ送信が失敗し続けるため
   - `TentView.jsx`: テント内の2D俯瞰ビュー（SPEC §5.3・Phase 1）。`TentState`を参照して参加者を`AvatarSprite`として床面に配置し、自分のアバターはドラッグで移動できる。発話中は緑のリングで表示
   - `SpatialAudio.jsx`: 空間オーディオ（SPEC F2・本アプリの中核）。`RoomAudioRenderer`の代わりに、各参加者の音声トラックをWeb Audio API（`GainNode`＋`StereoPannerNode`）経由で再生し、`TentState`のアバター間距離で音量、左右位置でステレオパンを制御（近い人ほど明瞭、遠い人はほぼ無音、右にいる人は右から聞こえる）。Chrome向けに無音のaudio要素へも同ストリームを割り当てる定番ワークアラウンドを実施。向きによる強調・遠方トラックの購読停止（帯域節約）は未実装
-  - `ChatPanel.jsx`: テキストチャット（SPEC F6）。日本語UI（「メッセージを入力…」「送信」等）を自作。描き込み・位置同期と同じ`useDataChannel('chat', ...)`（`publishData`）方式で実装し、LiveKit標準の`useChat`（`sendText`/DataStreams）経路は使わない。`publishData`は自分には配信されないため、自分のメッセージは送信時にローカルへ即時追加する。石アバターでもチャットは可能（声を出せない段階の参加手段）
+  - `ChatState.jsx`: チャットのメッセージ配列とデータチャネル購読（`useDataChannel('chat', ...)`、`publishData`方式。LiveKit標準の`useChat`/`sendText`は使わない）を保持する共有ストア（React Context）。`TentStateProvider`と同様、パネルの開閉に関係なく常にマウントされている（`CallScreen`直下）ため、チャットを閉じても履歴が消えず、閉じている間に届いたメッセージも取りこぼさない。`publishData`は自分には配信されないため、自分の送信メッセージは送信時にローカルへ即時追加する
+  - `ChatPanel.jsx`: テキストチャットの見た目のみを担当（SPEC F6）。日本語UI（「メッセージを入力…」「送信」等）。`chatOpen`のトグルで表示/非表示にするのはこのコンポーネントの描画だけで、状態は`ChatState`側にあるため開閉しても消えない。石アバターでもチャットは可能（声を出せない段階の参加手段）
   - `ScreenShareStage.jsx`: 画面共有中の映像（`useTracks([Track.Source.ScreenShare])`で検出）と、その上に重ねる描き込みオーバーレイの表示
   - `DrawingOverlay.jsx`: 画面共有映像の上に重ねる`<canvas>`。ペン（フリーハンド）／丸で囲む（楕円）／消しゴムの3ツールを提供し、LiveKitの**データチャネル**（`useDataChannel('draw', ...)`、`localParticipant`経由でP2PではなくSFU経由の低遅延メッセージング）でストローク情報を全参加者にブロードキャストし、誰の画面でも同じ描き込みが同期表示される
     - ツールは明示的に選択するまで無効（初期状態は`tool = null`で`<canvas>`は`pointerEvents: 'none'`）。ツールボタンはトグル式で、選択中のツールボタンをもう一度押すと解除される
@@ -80,7 +81,8 @@ third-place/
 │       ├── TentState.jsx        位置/アバター種別の共有ストア・データチャネル同期
 │       ├── TentView.jsx         テント内2D俯瞰ビュー・アバター移動
 │       ├── SpatialAudio.jsx     空間オーディオ（距離減衰＋ステレオパン）
-│       ├── ChatPanel.jsx        日本語テキストチャット（useChat）
+│       ├── ChatState.jsx        チャットのメッセージ状態・データチャネル同期（常時マウント）
+│       ├── ChatPanel.jsx        日本語テキストチャットの見た目
 │       ├── ScreenShareStage.jsx 画面共有映像の表示
 │       └── DrawingOverlay.jsx   画面共有上の描き込み（ペン/丸/消しゴム）とデータチャネル同期
 ├── server/           Express バックエンド。Renderへデプロイ
@@ -123,5 +125,6 @@ npm run dev      # http://localhost:5173
 - 画面共有は同時に1人のみ想定（複数人が同時共有した場合の表示制御は未実装、`ScreenShareStage`は最初の1トラックのみ表示）
 - 描き込みの色・太さは固定（ペンは赤、丸は橙、変更UIなし）
 - チャットは日本語UI（`ChatPanel.jsx`）。テント（ルーム）単位。テーブル単位チャットは未対応
+- チャットのメッセージ履歴は「今そのテントに接続している間」だけ保持される（`ChatState`がその場のReact state。サーバー側には保存しない）。途中入室者やリロード後は、参加より前のメッセージは見えない。サーバー側でのログ保存はSPEC F10（ログ収集基盤）のスコープ
 - CORSはオリジン無制限
 - 認証・ユーザー管理なし（表示名を自己申告するのみ）
