@@ -40,7 +40,7 @@ WebRTCは本来1対1通話を前提とした技術で、複数人が同時に通
   - `TentState.jsx`: テント内の位置・アバター種別を管理しデータチャネル（`useDataChannel('position', ...)`）で同期する共有ストア（React Context）。TentView（描画）とSpatialAudio（音声）の両方が参照する。座標は床サイズ非依存の0〜1正規化、移動中は約10Hzのロスあり配信＋2秒ごとのハートビート再送（後から入室した人にも状態が伝わるように）。種別も同梱するので石↔人の変化が全員に即反映
   - `TentView.jsx`: テント内の2D俯瞰ビュー（SPEC §5.3・Phase 1）。`TentState`を参照して参加者を`AvatarSprite`として床面に配置し、自分のアバターはドラッグで移動できる。発話中は緑のリングで表示
   - `SpatialAudio.jsx`: 空間オーディオ（SPEC F2・本アプリの中核）。`RoomAudioRenderer`の代わりに、各参加者の音声トラックをWeb Audio API（`GainNode`＋`StereoPannerNode`）経由で再生し、`TentState`のアバター間距離で音量、左右位置でステレオパンを制御（近い人ほど明瞭、遠い人はほぼ無音、右にいる人は右から聞こえる）。Chrome向けに無音のaudio要素へも同ストリームを割り当てる定番ワークアラウンドを実施。向きによる強調・遠方トラックの購読停止（帯域節約）は未実装
-  - `ChatPanel.jsx`: テキストチャット（SPEC F6）。LiveKit標準の`<Chat>`はラベルが英語固定のため、`useChat`フックで日本語UI（「メッセージを入力…」「送信」等）を自作。石アバターでもチャットは可能（声を出せない段階の参加手段）
+  - `ChatPanel.jsx`: テキストチャット（SPEC F6）。日本語UI（「メッセージを入力…」「送信」等）を自作。描き込み・位置同期と同じ`useDataChannel('chat', ...)`（`publishData`）方式で実装し、LiveKit標準の`useChat`（`sendText`/DataStreams）経路は使わない。`publishData`は自分には配信されないため、自分のメッセージは送信時にローカルへ即時追加する。石アバターでもチャットは可能（声を出せない段階の参加手段）
   - `ScreenShareStage.jsx`: 画面共有中の映像（`useTracks([Track.Source.ScreenShare])`で検出）と、その上に重ねる描き込みオーバーレイの表示
   - `DrawingOverlay.jsx`: 画面共有映像の上に重ねる`<canvas>`。ペン（フリーハンド）／丸で囲む（楕円）／消しゴムの3ツールを提供し、LiveKitの**データチャネル**（`useDataChannel('draw', ...)`、`localParticipant`経由でP2PではなくSFU経由の低遅延メッセージング）でストローク情報を全参加者にブロードキャストし、誰の画面でも同じ描き込みが同期表示される
     - ツールは明示的に選択するまで無効（初期状態は`tool = null`で`<canvas>`は`pointerEvents: 'none'`）。ツールボタンはトグル式で、選択中のツールボタンをもう一度押すと解除される
