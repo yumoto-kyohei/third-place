@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { useDataChannel, useLocalParticipant } from '@livekit/components-react';
+import { useConnectionState, useDataChannel, useLocalParticipant } from '@livekit/components-react';
+import { ConnectionState } from 'livekit-client';
 
 // チャットは描き込み・位置同期と同じ useDataChannel（publishData）方式で実装する。
 // LiveKit標準の useChat（sendText/DataStreams）とは別経路で、既に動作実績のある仕組みに揃える。
@@ -22,6 +23,8 @@ function formatTime(ts) {
 
 export default function ChatPanel() {
   const { localParticipant } = useLocalParticipant();
+  const connectionState = useConnectionState();
+  const connected = connectionState === ConnectionState.Connected;
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const [sendError, setSendError] = useState(false);
@@ -41,7 +44,7 @@ export default function ChatPanel() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     const value = text.trim();
-    if (!value) return;
+    if (!value || !connected) return;
     const entry = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, message: value, ts: Date.now() };
     setText('');
     setSendError(false);
@@ -90,12 +93,13 @@ export default function ChatPanel() {
       <form onSubmit={handleSubmit} style={{ display: 'flex', gap: '0.5rem', padding: '0.5rem', borderTop: '1px solid var(--border)' }}>
         <input
           type="text"
-          placeholder="メッセージを入力…"
+          placeholder={connected ? 'メッセージを入力…' : '接続中…'}
           value={text}
           onChange={(e) => setText(e.target.value)}
+          disabled={!connected}
           style={{ flex: 1 }}
         />
-        <button type="submit" disabled={!text.trim()}>
+        <button type="submit" disabled={!text.trim() || !connected}>
           送信
         </button>
       </form>

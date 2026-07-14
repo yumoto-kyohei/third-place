@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { useDataChannel, useLocalParticipant } from '@livekit/components-react';
+import { useConnectionState, useDataChannel, useLocalParticipant } from '@livekit/components-react';
+import { ConnectionState } from 'livekit-client';
 
 // テント内の位置・アバター状態を管理し、データチャネルで同期する共有ストア。
 // 2D俯瞰ビュー（TentView）と空間オーディオ（SpatialAudio）の両方から参照する。
@@ -37,6 +38,13 @@ export function TentStateProvider({ avatarType, children }) {
 
   const lastSentRef = useRef(0);
 
+  // 接続完了前に publishData を呼ぶと LiveKit 内部の送信路が壊れ、以降の全送信（チャット含む）が
+  // 失敗し続けるため、必ず Connected になってから送信する。
+  const connectionState = useConnectionState();
+  const connected = connectionState === ConnectionState.Connected;
+  const connectedRef = useRef(connected);
+  connectedRef.current = connected;
+
   const { send } = useDataChannel('position', (msg) => {
     const from = msg.from?.identity;
     if (!from || from === localParticipant.identity) return;
@@ -45,6 +53,7 @@ export function TentStateProvider({ avatarType, children }) {
   });
 
   const publish = (pos, force = false) => {
+    if (!connectedRef.current) return; // 接続完了までは送らない
     const now = Date.now();
     if (!force && now - lastSentRef.current < SEND_INTERVAL_MS) return;
     lastSentRef.current = now;
@@ -64,10 +73,10 @@ export function TentStateProvider({ avatarType, children }) {
     return () => clearInterval(id);
   }, []);
 
-  // 入室直後に一度通知
+  // 接続完了時に一度通知（後から入室した人にも状態が伝わるように）
   useEffect(() => {
-    publish(myPosRef.current, true);
-  }, []);
+    if (connected) publish(myPosRef.current, true);
+  }, [connected]);
 
   // アバター種別が変わったら即座に通知
   useEffect(() => {
