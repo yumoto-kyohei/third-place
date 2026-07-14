@@ -40,8 +40,10 @@ export default function ChatPanel() {
       style={{
         maxWidth: 600,
         margin: '0.5rem auto',
-        border: '1px solid var(--border)',
-        borderRadius: 12,
+        background: 'var(--panel-bg)',
+        border: '3px solid var(--border)',
+        borderRadius: 16,
+        boxShadow: '0 3px 0 var(--border)',
         display: 'flex',
         flexDirection: 'column',
         height: 320,
@@ -62,7 +64,7 @@ export default function ChatPanel() {
         )}
       </div>
       {sendError && (
-        <p style={{ fontSize: 12, color: '#d33', margin: '0 0.75rem' }}>
+        <p style={{ fontSize: 12, color: 'var(--danger)', margin: '0 0.75rem' }}>
           送信に失敗しました。接続を確認してもう一度お試しください。
         </p>
       )}

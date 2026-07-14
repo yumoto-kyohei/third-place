@@ -28,18 +28,20 @@ export default function AvatarSprite({ type, speaking = false }) {
       // key経由で種別変更時にアニメーションが再生される（石→人などの「変化」演出）
       key={type}
       style={{
-        width: 44,
-        height: 44,
+        width: 48,
+        height: 48,
         borderRadius: '50%',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        fontSize: 26,
+        fontSize: 28,
         lineHeight: 1,
-        background: 'var(--bg)',
-        // 人型は話す可能性を示すため実線の枠、非人間は破線の枠で一目で区別
-        border: human ? '2px solid var(--accent, #aa3bff)' : '2px dashed #9aa0aa',
-        boxShadow: speaking ? '0 0 0 4px rgba(52, 199, 89, 0.6)' : 'none',
+        background: 'radial-gradient(circle at 35% 30%, var(--panel-bg), var(--bg))',
+        // 人型は話す可能性を示すため実線の金枠、非人間は破線の枠で一目で区別
+        border: human ? '3px solid var(--accent, #c98a1f)' : '3px dashed #9aa0aa',
+        boxShadow: speaking
+          ? '0 0 0 4px rgba(127, 176, 105, 0.7), 0 2px 4px rgba(0,0,0,0.3)'
+          : '0 2px 4px rgba(0,0,0,0.3)',
         animation: 'avatar-pop 0.2s ease-out',
       }}
     >

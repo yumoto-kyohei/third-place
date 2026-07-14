@@ -1,10 +1,18 @@
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
+  --text: #5a4632;
+  --text-h: #2b1c10;
+  --bg: #f3e6c8;
+  --panel-bg: #faf1da;
+  --border: #8a5a2b;
+  --accent: #c98a1f;
+  --accent-h: #a86f14;
+  --accent-text: #2b1c10;
+  --floor-a: #7fb069;
+  --floor-b: #5f9152;
+  --danger: #b33a2e;
 
   --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
+  --serif: Georgia, 'Hiragino Mincho ProN', 'Yu Mincho', serif;
 
   font: 16px/145% var(--sans);
   color-scheme: light dark;
@@ -18,10 +26,17 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
+    --text: #d9c9a3;
+    --text-h: #f3e6c8;
+    --bg: #241a12;
+    --panel-bg: #2f2318;
+    --border: #6b4a25;
+    --accent: #e0b84a;
+    --accent-h: #f0cc6a;
+    --accent-text: #241a12;
+    --floor-a: #3b6b3a;
+    --floor-b: #294a29;
+    --danger: #e07a6c;
   }
 }
 
@@ -36,6 +51,9 @@ body {
   margin: 0;
   /* stable on mobile browsers whose UI chrome shows/hides on scroll */
   height: 100svh;
+  background:
+    radial-gradient(ellipse at top, rgba(255, 255, 255, 0.25), transparent 60%),
+    var(--bg);
 }
 
 #root {
@@ -45,22 +63,41 @@ body {
 }
 
 h1 {
-  font-family: var(--sans);
-  font-weight: 600;
+  font-family: var(--serif);
+  font-weight: 700;
   color: var(--text-h);
-  font-size: 28px;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.4);
+  font-size: 32px;
   margin: 16px 0;
+  letter-spacing: 0.02em;
 }
 
 button {
   font: inherit;
   font-size: 16px;
+  font-weight: 600;
   min-height: 44px;
-  padding: 0 14px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text-h);
+  padding: 0 16px;
+  border-radius: 10px;
+  border: 2px solid var(--border);
+  background: linear-gradient(180deg, var(--accent), var(--accent-h));
+  color: var(--accent-text);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 2px 0 var(--border);
+  transition: transform 0.05s ease-out;
+}
+
+button:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+button:disabled {
+  background: var(--panel-bg);
+  color: var(--text);
+  box-shadow: none;
+  opacity: 0.6;
 }
 
 input {
@@ -69,14 +106,10 @@ input {
   font-size: 16px;
   min-height: 44px;
   padding: 0 12px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg);
+  border-radius: 10px;
+  border: 2px solid var(--border);
+  background: var(--panel-bg);
   color: var(--text-h);
-}
-
-button:disabled {
-  opacity: 0.5;
 }
 
 /* アバター種別変更時の軽い演出（石→人などの変化を周囲にも見せる） */

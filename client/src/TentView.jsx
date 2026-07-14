@@ -49,9 +49,13 @@ export default function TentView() {
         maxWidth: 600,
         margin: '0.5rem auto',
         aspectRatio: '4 / 3',
-        background: 'var(--floor, #f0eef5)',
-        border: '1px solid var(--border)',
-        borderRadius: 12,
+        background: `
+          repeating-linear-gradient(45deg, rgba(255,255,255,0.05) 0 2px, transparent 2px 24px),
+          linear-gradient(160deg, var(--floor-a), var(--floor-b))
+        `,
+        border: '4px solid var(--border)',
+        borderRadius: 16,
+        boxShadow: 'inset 0 2px 6px rgba(0,0,0,0.25), 0 3px 0 var(--border)',
         touchAction: 'none',
         overflow: 'hidden',
       }}
@@ -84,7 +88,15 @@ export default function TentView() {
             }}
           >
             <AvatarSprite type={type} speaking={isSpeaking} />
-            <span style={{ fontSize: 12, color: 'var(--text-h)', whiteSpace: 'nowrap' }}>
+            <span
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                color: '#fff',
+                textShadow: '0 1px 2px rgba(0,0,0,0.7)',
+                whiteSpace: 'nowrap',
+              }}
+            >
               {isSpeaking ? '🔊 ' : ''}
               {p.identity}
               {isMe ? '（あなた）' : ''}

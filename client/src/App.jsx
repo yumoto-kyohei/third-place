@@ -16,9 +16,20 @@ function JoinForm({ onJoin, connecting, error }) {
         e.preventDefault();
         if (name.trim() && !connecting) onJoin(name.trim());
       }}
-      style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxWidth: 300, margin: '4rem auto', padding: '0 1rem' }}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '0.75rem',
+        maxWidth: 320,
+        margin: '4rem auto',
+        padding: '1.5rem',
+        background: 'var(--panel-bg)',
+        border: '3px solid var(--border)',
+        borderRadius: 16,
+        boxShadow: '0 4px 0 var(--border), 0 8px 16px rgba(0,0,0,0.15)',
+      }}
     >
-      <h1>third place</h1>
+      <h1 style={{ textAlign: 'center', margin: '0 0 0.5rem' }}>🏕️ third place</h1>
       <input
         type="text"
         placeholder="表示名"
@@ -35,7 +46,7 @@ function JoinForm({ onJoin, connecting, error }) {
         </p>
       )}
       {error && (
-        <p style={{ fontSize: 13, color: '#d33' }}>
+        <p style={{ fontSize: 13, color: 'var(--danger)' }}>
           接続に失敗しました。もう一度お試しください。
         </p>
       )}
