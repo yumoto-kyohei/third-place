@@ -10,7 +10,7 @@ function clamp01(v) {
 export default function TentView() {
   const floorRef = useRef(null);
   const draggingRef = useRef(false);
-  const { myPos, updateMyPos, others, avatarType, localIdentity } = useTentState();
+  const { myPos, updateMyPos, others, avatarType, localIdentity, hopping } = useTentState();
   const participants = useParticipants();
   const speaking = useSpeakingParticipants();
   const speakingIds = new Set(speaking.map((p) => p.identity));
@@ -87,7 +87,7 @@ export default function TentView() {
               transition: isMe ? 'none' : 'left 0.1s linear, top 0.1s linear',
             }}
           >
-            <AvatarSprite type={type} speaking={isSpeaking} />
+            <AvatarSprite type={type} speaking={isSpeaking} hopping={!!hopping[p.identity]} />
             <span
               style={{
                 fontSize: 12,

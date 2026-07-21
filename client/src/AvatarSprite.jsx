@@ -19,7 +19,7 @@ export function avatarLabel(type) {
   return BY_KEY[type]?.label ?? '';
 }
 
-export default function AvatarSprite({ type, speaking = false }) {
+export default function AvatarSprite({ type, speaking = false, hopping = false }) {
   const info = BY_KEY[type] || BY_KEY[DEFAULT_AVATAR];
   const human = info.human;
 
@@ -42,7 +42,8 @@ export default function AvatarSprite({ type, speaking = false }) {
         boxShadow: speaking
           ? '0 0 0 4px rgba(127, 176, 105, 0.7), 0 2px 4px rgba(0,0,0,0.3)'
           : '0 2px 4px rgba(0,0,0,0.3)',
-        animation: 'avatar-pop 0.2s ease-out',
+        // 石・草・人型が「歩く」のは不自然なので、移動中は歩行の代わりにホップさせる
+        animation: hopping ? 'avatar-pop 0.2s ease-out, hop 0.4s ease-in-out infinite' : 'avatar-pop 0.2s ease-out',
       }}
     >
       {info.emoji}

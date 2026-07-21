@@ -121,3 +121,20 @@ input {
     transform: scale(1);
   }
 }
+
+/* 石・草・人型が「歩く」のは不自然なため、移動中はこのぴょんぴょん飛ぶ演出に差し替える */
+@keyframes hop {
+  0%,
+  100% {
+    transform: translateY(0) scale(1, 1);
+  }
+  30% {
+    transform: translateY(0) scale(1.15, 0.85);
+  }
+  55% {
+    transform: translateY(-14px) scale(0.92, 1.08);
+  }
+  85% {
+    transform: translateY(0) scale(1.1, 0.9);
+  }
+}

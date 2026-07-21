@@ -7,6 +7,9 @@ import { ConnectionState } from 'livekit-client';
 
 const SEND_INTERVAL_MS = 100; // 位置更新の送信間隔（約10Hz）
 const HEARTBEAT_MS = 2000; // 後から入室した人にも状態が伝わるよう定期再送する間隔
+const HOP_LINGER_MS = 350; // 最後に位置が変わってからホップ演出を続ける時間
+const MOVE_EPSILON = 0.001; // これ未満の差分は「動いていない」とみなす（ハートビートの誤検知防止）
+const WASD_SPEED = 0.5; // 正規化座標/秒
 
 const TentStateContext = createContext(null);
 
@@ -22,6 +25,15 @@ function decode(payload) {
   return JSON.parse(new TextDecoder().decode(payload));
 }
 
+function clamp01(v) {
+  return Math.min(1, Math.max(0, v));
+}
+
+function isTypingTarget() {
+  const el = document.activeElement;
+  return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+}
+
 export function TentStateProvider({ avatarType, children }) {
   const { localParticipant } = useLocalParticipant();
 
@@ -35,6 +47,27 @@ export function TentStateProvider({ avatarType, children }) {
 
   // 他の参加者の状態 { identity: {x, y, type} }
   const [others, setOthers] = useState({});
+  const othersLastPosRef = useRef({});
+
+  // 石・草・人型が「歩く」のは不自然なため、移動中は歩行の代わりにぴょんぴょん飛ぶ演出にする。
+  // { identity: boolean }。実際に位置が変わったときだけ短時間trueにする。
+  const [hopping, setHopping] = useState({});
+  const hopTimersRef = useRef({});
+
+  const markHopping = (identity) => {
+    setHopping((prev) => (prev[identity] ? prev : { ...prev, [identity]: true }));
+    clearTimeout(hopTimersRef.current[identity]);
+    hopTimersRef.current[identity] = setTimeout(() => {
+      setHopping((prev) => ({ ...prev, [identity]: false }));
+    }, HOP_LINGER_MS);
+  };
+
+  useEffect(() => {
+    const timers = hopTimersRef.current;
+    return () => {
+      Object.values(timers).forEach(clearTimeout);
+    };
+  }, []);
 
   const lastSentRef = useRef(0);
 
@@ -49,6 +82,11 @@ export function TentStateProvider({ avatarType, children }) {
     const from = msg.from?.identity;
     if (!from || from === localParticipant.identity) return;
     const { x, y, type } = decode(msg.payload);
+    const last = othersLastPosRef.current[from];
+    if (!last || Math.hypot(x - last.x, y - last.y) > MOVE_EPSILON) {
+      markHopping(from);
+    }
+    othersLastPosRef.current[from] = { x, y };
     setOthers((prev) => ({ ...prev, [from]: { x, y, type } }));
   });
 
@@ -64,6 +102,7 @@ export function TentStateProvider({ avatarType, children }) {
   const updateMyPos = (pos, force = false) => {
     myPosRef.current = pos;
     setMyPos(pos);
+    markHopping(localParticipant.identity);
     publish(pos, force);
   };
 
@@ -83,12 +122,74 @@ export function TentStateProvider({ avatarType, children }) {
     publish(myPosRef.current, true);
   }, [avatarType]);
 
+  // WASDキーでの移動。チャット等への入力中は無効化する。
+  useEffect(() => {
+    const keys = new Set();
+    let rafId = null;
+    let lastTime = null;
+
+    const step = (time) => {
+      if (lastTime == null) lastTime = time;
+      const dt = (time - lastTime) / 1000;
+      lastTime = time;
+
+      let dx = 0;
+      let dy = 0;
+      if (keys.has('a')) dx -= 1;
+      if (keys.has('d')) dx += 1;
+      if (keys.has('w')) dy -= 1;
+      if (keys.has('s')) dy += 1;
+
+      if (dx !== 0 || dy !== 0) {
+        const len = Math.hypot(dx, dy) || 1;
+        const next = {
+          x: clamp01(myPosRef.current.x + (dx / len) * WASD_SPEED * dt),
+          y: clamp01(myPosRef.current.y + (dy / len) * WASD_SPEED * dt),
+        };
+        updateMyPos(next);
+      }
+      rafId = requestAnimationFrame(step);
+    };
+
+    const handleKeyDown = (e) => {
+      const k = e.key.toLowerCase();
+      if (!['w', 'a', 's', 'd'].includes(k) || isTypingTarget()) return;
+      if (!keys.has(k)) {
+        keys.add(k);
+        if (rafId == null) {
+          lastTime = null;
+          rafId = requestAnimationFrame(step);
+        }
+      }
+    };
+
+    const handleKeyUp = (e) => {
+      const k = e.key.toLowerCase();
+      keys.delete(k);
+      if (keys.size === 0 && rafId != null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+        updateMyPos(myPosRef.current, true); // 停止時に確実に同期
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      if (rafId != null) cancelAnimationFrame(rafId);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const value = {
     myPos,
     updateMyPos,
     others,
     avatarType,
     localIdentity: localParticipant.identity,
+    hopping,
   };
 
   return <TentStateContext.Provider value={value}>{children}</TentStateContext.Provider>;

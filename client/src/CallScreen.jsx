@@ -64,6 +64,9 @@ export default function CallScreen() {
             いまは「{avatarType === 'grass' ? '草' : '石'}」の姿です。声は出さず、ただそこに居られます。話したくなったら「人」を選んでください。
           </p>
         )}
+        <p style={{ fontSize: 12, color: 'var(--text)', margin: '0 1rem' }}>
+          💡 テント内はドラッグ、または W/A/S/D キーでも移動できます
+        </p>
         <ScreenShareStage />
         <TentView />
         {chatOpen && <ChatPanel />}
