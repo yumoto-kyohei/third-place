@@ -132,7 +132,7 @@ npm run dev      # http://localhost:5173
 - URL: `https://yumoto-kyohei.github.io/third-place/mockup.html`（本番は `/third-place/`。別エントリなので本番のコード・動作には一切影響しない）
 - 技術: `three` + `@react-three/fiber` + `@react-three/drei`（教授のGemini議論で想定されていた「床だけ3D・アバターは2Dスプライトのビルボード」構成）。Three.jsは`mockup-*.js`にのみ含まれ、本番アプリのバンドル（`main-*.js`）には入らない
 - 中身: 芝生の床＋斜めからの追従カメラ、自分＋ダミー3体のビルボードアバター、WASD/タップ・ドラッグ移動＋ホップ。**LiveKit・音声・同期は無し**（見た目と操作感だけを試すもの）
-- 注意: `npm run dev`（Vite開発サーバー）ではr3f由来の`Invalid hook call`が出るが、これは開発サーバー特有の重複React問題で、**本番ビルド（デプロイされるもの）では発生しない**。確認は上記URLか`npm run build && npx vite preview`で行う
+- 以前は`npm run dev`（Vite開発サーバー）でr3f由来の`Invalid hook call`が出ていたが、`vite.config.js`の`optimizeDeps.entries: ['index.html', 'mockup.html']`で解消済み。原因は、Viteの依存事前バンドルが`index.html`からのみクロールされ、`mockup.html`に直接アクセスすると依存関係が段階的にしか見つからず、再最適化→リロードを繰り返す過程でエラーになっていたため。両エントリを明示することで初回起動時に一括でスキャンされるようになった
 
 ## 現状の制約・今後の予定
 

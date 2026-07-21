@@ -10,6 +10,22 @@ export default defineConfig({
   resolve: {
     dedupe: ['react', 'react-dom'],
   },
+  optimizeDeps: {
+    // 両方のHTMLエントリを最初からスキャンさせないと、mockup.html に直接アクセスしたときに
+    // 依存関係が段階的に見つかって何度も再最適化→リロードを繰り返し、
+    // その途中で "Invalid hook call" になることがある。
+    entries: ['index.html', 'mockup.html'],
+    include: [
+      'react',
+      'react-dom',
+      'react-dom/client',
+      'react/jsx-runtime',
+      'react/jsx-dev-runtime',
+      '@react-three/fiber',
+      '@react-three/drei',
+      'three',
+    ],
+  },
   build: {
     rollupOptions: {
       input: {
