@@ -87,7 +87,11 @@ third-place/
 │       ├── ChatState.jsx        チャットのメッセージ状態・データチャネル同期（常時マウント）
 │       ├── ChatPanel.jsx        日本語テキストチャットの見た目
 │       ├── ScreenShareStage.jsx 画面共有映像の表示
-│       └── DrawingOverlay.jsx   画面共有上の描き込み（ペン/丸/消しゴム）とデータチャネル同期
+│       ├── DrawingOverlay.jsx   画面共有上の描き込み（ペン/丸/消しゴム）とデータチャネル同期
+│       └── mockup/             ★2.5D検証用モックアップ（本番アプリとは完全独立）
+│           ├── main.jsx        モックアップのReactエントリ
+│           └── Mockup.jsx      Three.js(react-three-fiber)による2.5Dパース＋ビルボード
+├── mockup.html       モックアップのHTMLエントリ（本番= index.html とは別）
 ├── server/           Express バックエンド。Renderへデプロイ
 │   └── index.js      トークン発行APIのみを提供
 ├── .github/workflows/deploy-client.yml   client を GitHub Pages に自動デプロイするワークフロー
@@ -120,6 +124,15 @@ cd client
 npm install
 npm run dev      # http://localhost:5173
 ```
+
+## 2.5D 検証モックアップ
+
+「平面の見下ろし」から「斜め見下ろし（2.5Dパース）＋ビルボードアバター」に変えると“場所らしさ／メタバース感”が出るかを、本番に影響を与えずに試すための実験ページ。
+
+- URL: `https://yumoto-kyohei.github.io/third-place/mockup.html`（本番は `/third-place/`。別エントリなので本番のコード・動作には一切影響しない）
+- 技術: `three` + `@react-three/fiber` + `@react-three/drei`（教授のGemini議論で想定されていた「床だけ3D・アバターは2Dスプライトのビルボード」構成）。Three.jsは`mockup-*.js`にのみ含まれ、本番アプリのバンドル（`main-*.js`）には入らない
+- 中身: 芝生の床＋斜めからの追従カメラ、自分＋ダミー3体のビルボードアバター、WASD/タップ・ドラッグ移動＋ホップ。**LiveKit・音声・同期は無し**（見た目と操作感だけを試すもの）
+- 注意: `npm run dev`（Vite開発サーバー）ではr3f由来の`Invalid hook call`が出るが、これは開発サーバー特有の重複React問題で、**本番ビルド（デプロイされるもの）では発生しない**。確認は上記URLか`npm run build && npx vite preview`で行う
 
 ## 現状の制約・今後の予定
 
