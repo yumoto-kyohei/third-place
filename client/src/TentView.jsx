@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Billboard } from '@react-three/drei';
@@ -8,12 +8,17 @@ import { useTentState } from './TentState';
 
 // ============================================================================
 // テント内2D俯瞰ビュー → 2.5Dパース＋ビルボード表示（SPEC §5.3・Phase 1）。
-// 位置・アバター種別・ホップ状態の「正」は引き続き TentState.jsx が持つ（ここでは変更しない）。
-// このファイルはその値を読んで3D空間に描画し、床のタップ/ドラッグで updateMyPos を呼ぶだけ。
+// 位置・アバター種別・ホップ状態の「正」は引き続き TentState.jsx が持つ（同期・他参加者向け）。
+// 自分の見た目上の移動だけは、React state を介さない ref で毎フレーム直接動かす
+// （react-three-fiber の描画ループと同期させ、モックアップと同じ滑らかさにするため）。
+// 通信への同期（updateMyPos呼び出し）は、この見た目の動きとは別に間引いて行う。
 // ============================================================================
 
 const BY_KEY = Object.fromEntries(AVATAR_TYPES.map((a) => [a.key, a]));
 const FIELD = 24; // 床の一辺の大きさ（ワールド単位）
+const HALF = FIELD / 2;
+const WASD_SPEED = 4; // ワールド単位/秒
+const SYNC_INTERVAL_MS = 100; // TentStateへの同期間隔（見た目の滑らかさとは独立）
 
 function clamp01(v) {
   return Math.min(1, Math.max(0, v));
@@ -27,6 +32,13 @@ function toWorldZ(ny) {
 }
 function fromWorld(x, z) {
   return { x: clamp01(x / FIELD + 0.5), y: clamp01(z / FIELD + 0.5) };
+}
+function clampHalf(v) {
+  return THREE.MathUtils.clamp(v, -HALF, HALF);
+}
+function isTypingTarget() {
+  const el = document.activeElement;
+  return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
 }
 
 // アバターの円形フレーム（枠線で石/草=非人間・人=人型を区別）＋発話グロー＋絵文字を1枚のテクスチャに焼く
@@ -114,7 +126,7 @@ function makeLabelTexture(text) {
   return tex;
 }
 
-function Avatar3D({ identity, pos, type, speaking, hopping, isMe, worldPosRef }) {
+function Avatar3D({ identity, pos, worldRef, type, speaking, hopping, isMe, cameraTargetRef }) {
   const groupRef = useRef();
   const emojiTex = useMemo(() => makeAvatarTexture(type, speaking), [type, speaking]);
   const label = isMe ? `${identity}（あなた）` : identity;
@@ -123,20 +135,21 @@ function Avatar3D({ identity, pos, type, speaking, hopping, isMe, worldPosRef })
 
   useFrame((state, dt) => {
     if (!groupRef.current) return;
-    const targetX = toWorldX(pos.x);
-    const targetZ = toWorldZ(pos.y);
     const hopY = hopping ? Math.abs(Math.sin(state.clock.elapsedTime * 9)) * 0.4 : 0;
 
     if (isMe) {
-      groupRef.current.position.set(targetX, hopY, targetZ);
+      // 自分は毎フレーム ref から直接反映（React stateを介さないので滑らか）
+      groupRef.current.position.set(worldRef.current.x, hopY, worldRef.current.z);
     } else {
-      // 他の参加者はなめらかに補間（従来のDOM版のCSS transitionに相当）
+      // 他の参加者はネットワーク経由（10Hz程度）なのでなめらかに補間
+      const targetX = toWorldX(pos.x);
+      const targetZ = toWorldZ(pos.y);
       groupRef.current.position.x = THREE.MathUtils.damp(groupRef.current.position.x, targetX, 8, dt);
       groupRef.current.position.z = THREE.MathUtils.damp(groupRef.current.position.z, targetZ, 8, dt);
       groupRef.current.position.y = hopY;
     }
 
-    if (worldPosRef) worldPosRef.current.copy(groupRef.current.position);
+    if (cameraTargetRef) cameraTargetRef.current.copy(groupRef.current.position);
   });
 
   return (
@@ -185,16 +198,80 @@ function CameraRig({ targetRef }) {
   return null;
 }
 
+// WASDキーでの移動（自分の見た目=worldRefを毎フレーム直接更新）と、
+// ドラッグ中も含めた「移動があったときだけ」の間引き同期をまとめて担当する。
+function LocalMover({ worldRef, draggingRef, syncToServer }) {
+  const keysRef = useRef(new Set());
+  const lastSyncRef = useRef(0);
+  const wasActiveRef = useRef(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const k = e.key.toLowerCase();
+      if (!['w', 'a', 's', 'd'].includes(k) || isTypingTarget()) return;
+      keysRef.current.add(k);
+    };
+    const handleKeyUp = (e) => keysRef.current.delete(e.key.toLowerCase());
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
+
+  useFrame((state, dt) => {
+    const keys = keysRef.current;
+    let dx = 0;
+    let dz = 0;
+    if (keys.has('a')) dx -= 1;
+    if (keys.has('d')) dx += 1;
+    if (keys.has('w')) dz -= 1;
+    if (keys.has('s')) dz += 1;
+
+    if (dx !== 0 || dz !== 0) {
+      const len = Math.hypot(dx, dz);
+      const p = worldRef.current;
+      p.x = clampHalf(p.x + (dx / len) * WASD_SPEED * dt);
+      p.z = clampHalf(p.z + (dz / len) * WASD_SPEED * dt);
+    }
+
+    const active = keys.size > 0 || draggingRef.current;
+    const now = state.clock.elapsedTime * 1000;
+
+    if (active && !wasActiveRef.current) {
+      // 動き始めの瞬間は確実に同期
+      lastSyncRef.current = now;
+      syncToServer(true);
+    } else if (active) {
+      if (now - lastSyncRef.current > SYNC_INTERVAL_MS) {
+        lastSyncRef.current = now;
+        syncToServer(false);
+      }
+    } else if (wasActiveRef.current) {
+      // 止まった瞬間も確実に同期
+      syncToServer(true);
+    }
+    wasActiveRef.current = active;
+  });
+
+  return null;
+}
+
 function Scene() {
   const { myPos, others, avatarType, localIdentity, hopping, updateMyPos } = useTentState();
   const participants = useParticipants();
   const speaking = useSpeakingParticipants();
   const speakingIds = new Set(speaking.map((p) => p.identity));
-  const localWorldPosRef = useRef(new THREE.Vector3(toWorldX(myPos.x), 0, toWorldZ(myPos.y)));
+
+  // 自分の「見た目上の」現在地。React stateではなくrefなので、毎フレーム書き換えても再レンダーを起こさない
+  const worldRef = useRef(new THREE.Vector3(toWorldX(myPos.x), 0, toWorldZ(myPos.y)));
+  const cameraTargetRef = useRef(worldRef.current.clone());
   const draggingRef = useRef(false);
 
-  const moveFromPoint = (point, force) => {
-    updateMyPos(fromWorld(point.x, point.z), force);
+  const syncToServer = (force) => {
+    updateMyPos(fromWorld(worldRef.current.x, worldRef.current.z), force);
   };
 
   return (
@@ -210,16 +287,16 @@ function Scene() {
           e.stopPropagation();
           e.target.setPointerCapture(e.pointerId);
           draggingRef.current = true;
-          moveFromPoint(e.point, true);
+          worldRef.current.x = clampHalf(e.point.x);
+          worldRef.current.z = clampHalf(e.point.z);
         }}
         onPointerMove={(e) => {
           if (!draggingRef.current) return;
-          moveFromPoint(e.point, false);
+          worldRef.current.x = clampHalf(e.point.x);
+          worldRef.current.z = clampHalf(e.point.z);
         }}
         onPointerUp={() => {
-          if (!draggingRef.current) return;
           draggingRef.current = false;
-          updateMyPos(myPos, true);
         }}
       >
         <planeGeometry args={[FIELD, FIELD]} />
@@ -231,26 +308,40 @@ function Scene() {
       <Tree position={[8, 0, -5]} />
       <Tree position={[-9, 0, 6]} />
 
+      <LocalMover worldRef={worldRef} draggingRef={draggingRef} syncToServer={syncToServer} />
+
       {participants.map((p) => {
         const isMe = p.identity === localIdentity;
-        const state = isMe ? myPos : others[p.identity];
+        if (isMe) {
+          return (
+            <Avatar3D
+              key={p.identity}
+              identity={p.identity}
+              worldRef={worldRef}
+              type={avatarType}
+              speaking={speakingIds.has(p.identity)}
+              hopping={!!hopping[p.identity]}
+              isMe
+              cameraTargetRef={cameraTargetRef}
+            />
+          );
+        }
+        const state = others[p.identity];
         const pos = state || { x: 0.5, y: 0.5 };
-        const type = isMe ? avatarType : state?.type || DEFAULT_AVATAR;
         return (
           <Avatar3D
             key={p.identity}
             identity={p.identity}
             pos={pos}
-            type={type}
+            type={state?.type || DEFAULT_AVATAR}
             speaking={speakingIds.has(p.identity)}
             hopping={!!hopping[p.identity]}
-            isMe={isMe}
-            worldPosRef={isMe ? localWorldPosRef : undefined}
+            isMe={false}
           />
         );
       })}
 
-      <CameraRig targetRef={localWorldPosRef} />
+      <CameraRig targetRef={cameraTargetRef} />
     </>
   );
 }
