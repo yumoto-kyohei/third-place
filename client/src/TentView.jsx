@@ -17,12 +17,9 @@ import { useTentState } from './TentState';
 const BY_KEY = Object.fromEntries(AVATAR_TYPES.map((a) => [a.key, a]));
 const FIELD = 24; // 床の一辺の大きさ（ワールド単位）
 const HALF = FIELD / 2;
-const WASD_SPEED = 4; // ワールド単位/秒
+const MOVE_SPEED = 4; // ワールド単位/秒（WASD・タップ移動とも共通）
+const ARRIVE_DIST = 0.1; // タップ移動先にこれだけ近づいたら到着扱い
 const SYNC_INTERVAL_MS = 100; // TentStateへの同期間隔（見た目の滑らかさとは独立）
-
-function clamp01(v) {
-  return Math.min(1, Math.max(0, v));
-}
 
 function toWorldX(nx) {
   return (nx - 0.5) * FIELD;
@@ -31,7 +28,7 @@ function toWorldZ(ny) {
   return (ny - 0.5) * FIELD;
 }
 function fromWorld(x, z) {
-  return { x: clamp01(x / FIELD + 0.5), y: clamp01(z / FIELD + 0.5) };
+  return { x: THREE.MathUtils.clamp(x / FIELD + 0.5, 0, 1), y: THREE.MathUtils.clamp(z / FIELD + 0.5, 0, 1) };
 }
 function clampHalf(v) {
   return THREE.MathUtils.clamp(v, -HALF, HALF);
@@ -41,8 +38,25 @@ function isTypingTarget() {
   return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
 }
 
-// アバターの円形フレーム（枠線で石/草=非人間・人=人型を区別）＋発話グロー＋絵文字を1枚のテクスチャに焼く
-function makeAvatarTexture(type, speaking) {
+// 絵文字だけを透過キャンバスに描く（検証用モックアップと同じ。枠や背景は付けない）
+function makeEmojiTexture(emoji) {
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.font = '190px serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(emoji, size / 2, size / 2 + 12);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// 足元の「立ち位置マーカー」。柔らかい接地影＋人型/非人間の区別リング＋発話中グローを1枚のテクスチャに焼く。
+// アバター本体（絵文字）には枠を付けず、区別のシグナルはこちらの地面側に持たせる（SPEC F1）。
+function makeGroundMarkerTexture(type, speaking) {
   const info = BY_KEY[type] || BY_KEY[DEFAULT_AVATAR];
   const size = 256;
   const canvas = document.createElement('canvas');
@@ -51,42 +65,39 @@ function makeAvatarTexture(type, speaking) {
   const ctx = canvas.getContext('2d');
   const cx = size / 2;
   const cy = size / 2;
-  const r = size / 2 - 20;
+  const r = size / 2 - 8;
 
+  // 柔らかい接地影
+  const shadow = ctx.createRadialGradient(cx, cy, r * 0.15, cx, cy, r);
+  shadow.addColorStop(0, 'rgba(0,0,0,0.28)');
+  shadow.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = shadow;
+  ctx.fill();
+
+  // 発話中は外側に緑のグローリング
   if (speaking) {
     ctx.beginPath();
-    ctx.arc(cx, cy, r + 12, 0, Math.PI * 2);
+    ctx.arc(cx, cy, r * 0.95, 0, Math.PI * 2);
     ctx.strokeStyle = 'rgba(127, 176, 105, 0.85)';
-    ctx.lineWidth = 16;
+    ctx.lineWidth = 10;
     ctx.stroke();
   }
 
-  const grad = ctx.createRadialGradient(cx - 30, cy - 40, 10, cx, cy, r);
-  grad.addColorStop(0, '#faf1da');
-  grad.addColorStop(1, '#f3e6c8');
+  // 人型=金の実線リング、非人間=グレーの破線リング（SPEC F1: 話す可能性の有無を一目で区別）
   ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.fillStyle = grad;
-  ctx.fill();
-
-  // 人型は話す可能性を示す実線の金枠、非人間は破線の枠で一目で区別（SPEC F1）
-  ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.lineWidth = 10;
+  ctx.arc(cx, cy, r * 0.68, 0, Math.PI * 2);
+  ctx.lineWidth = 8;
   if (info.human) {
     ctx.setLineDash([]);
-    ctx.strokeStyle = '#c98a1f';
+    ctx.strokeStyle = 'rgba(201, 138, 31, 0.9)';
   } else {
-    ctx.setLineDash([18, 14]);
-    ctx.strokeStyle = '#9aa0aa';
+    ctx.setLineDash([14, 10]);
+    ctx.strokeStyle = 'rgba(154, 160, 170, 0.9)';
   }
   ctx.stroke();
   ctx.setLineDash([]);
-
-  ctx.font = '150px serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(info.emoji, cx, cy + 12);
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -128,7 +139,8 @@ function makeLabelTexture(text) {
 
 function Avatar3D({ identity, pos, worldRef, type, speaking, hopping, isMe, cameraTargetRef }) {
   const groupRef = useRef();
-  const emojiTex = useMemo(() => makeAvatarTexture(type, speaking), [type, speaking]);
+  const emojiTex = useMemo(() => makeEmojiTexture(BY_KEY[type]?.emoji || BY_KEY[DEFAULT_AVATAR].emoji), [type]);
+  const markerTex = useMemo(() => makeGroundMarkerTexture(type, speaking), [type, speaking]);
   const label = isMe ? `${identity}（あなた）` : identity;
   const labelTex = useMemo(() => makeLabelTexture(label), [label]);
   const labelW = 0.85 * (labelTex.userData.aspect || 3);
@@ -155,15 +167,15 @@ function Avatar3D({ identity, pos, worldRef, type, speaking, hopping, isMe, came
   return (
     <group ref={groupRef}>
       <mesh rotation-x={-Math.PI / 2} position={[0, 0.02, 0]}>
-        <circleGeometry args={[0.45, 24]} />
-        <meshBasicMaterial color="#000" transparent opacity={0.25} depthWrite={false} />
+        <planeGeometry args={[1.1, 1.1]} />
+        <meshBasicMaterial map={markerTex} transparent depthWrite={false} />
       </mesh>
       <Billboard>
-        <mesh position={[0, 0.9, 0]}>
-          <planeGeometry args={[1.5, 1.5]} />
+        <mesh position={[0, 0.85, 0]}>
+          <planeGeometry args={[1.4, 1.4]} />
           <meshBasicMaterial map={emojiTex} transparent depthWrite={false} />
         </mesh>
-        <mesh position={[0, 1.9, 0]}>
+        <mesh position={[0, 1.85, 0]}>
           <planeGeometry args={[labelW, 0.5]} />
           <meshBasicMaterial map={labelTex} transparent depthWrite={false} />
         </mesh>
@@ -198,9 +210,11 @@ function CameraRig({ targetRef }) {
   return null;
 }
 
-// WASDキーでの移動（自分の見た目=worldRefを毎フレーム直接更新）と、
-// ドラッグ中も含めた「移動があったときだけ」の間引き同期をまとめて担当する。
-function LocalMover({ worldRef, draggingRef, syncToServer }) {
+// WASDキー、またはタップ/ドラッグで指定した目標地点への「一定ペースの移動」を担当する。
+// 自分の見た目（worldRef）はここで毎フレーム直接動かし、Reactの再レンダーは経由しない。
+// 目標地点への移動は瞬間移動ではなく、常にMOVE_SPEEDで近づいていく（検証用モックアップと同じ方式。
+// 急に大きくワープすると画面酔いの原因になるため）。
+function LocalMover({ worldRef, targetRef, syncToServer }) {
   const keysRef = useRef(new Set());
   const lastSyncRef = useRef(0);
   const wasActiveRef = useRef(false);
@@ -223,6 +237,7 @@ function LocalMover({ worldRef, draggingRef, syncToServer }) {
 
   useFrame((state, dt) => {
     const keys = keysRef.current;
+    const p = worldRef.current;
     let dx = 0;
     let dz = 0;
     if (keys.has('a')) dx -= 1;
@@ -230,21 +245,34 @@ function LocalMover({ worldRef, draggingRef, syncToServer }) {
     if (keys.has('w')) dz -= 1;
     if (keys.has('s')) dz += 1;
 
+    let moving = false;
+
     if (dx !== 0 || dz !== 0) {
+      targetRef.current = null; // WASD入力があればタップ移動先はキャンセル
       const len = Math.hypot(dx, dz);
-      const p = worldRef.current;
-      p.x = clampHalf(p.x + (dx / len) * WASD_SPEED * dt);
-      p.z = clampHalf(p.z + (dz / len) * WASD_SPEED * dt);
+      p.x = clampHalf(p.x + (dx / len) * MOVE_SPEED * dt);
+      p.z = clampHalf(p.z + (dz / len) * MOVE_SPEED * dt);
+      moving = true;
+    } else if (targetRef.current) {
+      const tx = targetRef.current.x - p.x;
+      const tz = targetRef.current.z - p.z;
+      const dist = Math.hypot(tx, tz);
+      if (dist > ARRIVE_DIST) {
+        const step = Math.min(MOVE_SPEED * dt, dist);
+        p.x += (tx / dist) * step;
+        p.z += (tz / dist) * step;
+        moving = true;
+      } else {
+        targetRef.current = null;
+      }
     }
 
-    const active = keys.size > 0 || draggingRef.current;
     const now = state.clock.elapsedTime * 1000;
-
-    if (active && !wasActiveRef.current) {
+    if (moving && !wasActiveRef.current) {
       // 動き始めの瞬間は確実に同期
       lastSyncRef.current = now;
       syncToServer(true);
-    } else if (active) {
+    } else if (moving) {
       if (now - lastSyncRef.current > SYNC_INTERVAL_MS) {
         lastSyncRef.current = now;
         syncToServer(false);
@@ -253,7 +281,7 @@ function LocalMover({ worldRef, draggingRef, syncToServer }) {
       // 止まった瞬間も確実に同期
       syncToServer(true);
     }
-    wasActiveRef.current = active;
+    wasActiveRef.current = moving;
   });
 
   return null;
@@ -268,10 +296,15 @@ function Scene() {
   // 自分の「見た目上の」現在地。React stateではなくrefなので、毎フレーム書き換えても再レンダーを起こさない
   const worldRef = useRef(new THREE.Vector3(toWorldX(myPos.x), 0, toWorldZ(myPos.y)));
   const cameraTargetRef = useRef(worldRef.current.clone());
-  const draggingRef = useRef(false);
+  // タップ/ドラッグで指定した「歩いていく先」。nullなら目標なし（LocalMoverが一定ペースで歩かせる）
+  const targetRef = useRef(null);
 
   const syncToServer = (force) => {
     updateMyPos(fromWorld(worldRef.current.x, worldRef.current.z), force);
+  };
+
+  const setTargetFromPoint = (point) => {
+    targetRef.current = new THREE.Vector3(clampHalf(point.x), 0, clampHalf(point.z));
   };
 
   return (
@@ -285,18 +318,10 @@ function Scene() {
         rotation-x={-Math.PI / 2}
         onPointerDown={(e) => {
           e.stopPropagation();
-          e.target.setPointerCapture(e.pointerId);
-          draggingRef.current = true;
-          worldRef.current.x = clampHalf(e.point.x);
-          worldRef.current.z = clampHalf(e.point.z);
+          setTargetFromPoint(e.point);
         }}
         onPointerMove={(e) => {
-          if (!draggingRef.current) return;
-          worldRef.current.x = clampHalf(e.point.x);
-          worldRef.current.z = clampHalf(e.point.z);
-        }}
-        onPointerUp={() => {
-          draggingRef.current = false;
+          if (e.buttons > 0) setTargetFromPoint(e.point);
         }}
       >
         <planeGeometry args={[FIELD, FIELD]} />
@@ -308,7 +333,7 @@ function Scene() {
       <Tree position={[8, 0, -5]} />
       <Tree position={[-9, 0, 6]} />
 
-      <LocalMover worldRef={worldRef} draggingRef={draggingRef} syncToServer={syncToServer} />
+      <LocalMover worldRef={worldRef} targetRef={targetRef} syncToServer={syncToServer} />
 
       {participants.map((p) => {
         const isMe = p.identity === localIdentity;
