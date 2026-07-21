@@ -36,12 +36,13 @@ WebRTCは本来1対1通話を前提とした技術で、複数人が同時に通
 - 見た目はRPG風のテーマ（`index.css`のCSS変数）。パーチメント色の背景、木製フレーム風の枠線（ボタン・入力欄・チャットパネル）、テント床は芝生グラデーション＋タイル模様、見出しはセリフ体。ライト/ダーク両方に対応した配色をCSS変数（`--bg`, `--panel-bg`, `--border`, `--accent`, `--floor-a/b`, `--danger`等）で管理しており、色を変えたい場合は`index.css`の`:root`と`@media (prefers-color-scheme: dark)`ブロックだけを触ればよい
 - コンポーネント構成:
   - `App.jsx`: 入室フォーム、トークン取得、`LiveKitRoom`への接続
-  - `CallScreen.jsx`: アバター切替ボタン（石/草/人）、マイク／画面共有のトグルボタン、チャット表示切り替え、退出ボタン（`useRoomContext().disconnect()`）、テント内2D俯瞰ビュー。非人間アバター選択中は`localParticipant.setMicrophoneEnabled(false)`でマイクを強制ミュートし、マイクボタンを非活性の「🔇 マイク」表示に置き換える
+  - `CallScreen.jsx`: アバター切替ボタン（石/草/人）、マイク／画面共有のトグルボタン、チャット表示切り替え、退出ボタン（`useRoomContext().disconnect()`）、テント内2.5Dビュー。非人間アバター選択中は`localParticipant.setMicrophoneEnabled(false)`でマイクを強制ミュートし、マイクボタンを非活性の「🔇 マイク」表示に置き換える
   - `AvatarSprite.jsx`: アバターの見た目を集約したモジュール（SPEC F1。差し替え前提で分離）。石(🪨)・草(🌿)＝非人間（破線枠・話さないシグナル）、人(🧍)＝人型（実線枠・話す可能性あり）。α版の仮素材は絵文字。`AVATAR_TYPES` / `isHumanAvatar` / `DEFAULT_AVATAR`（=石）をエクスポート。種別変更時は`avatar-pop`アニメーションで軽い変化演出
   - `TentState.jsx`: テント内の位置・アバター種別を管理しデータチャネル（`useDataChannel('position', ...)`）で同期する共有ストア（React Context）。TentView（描画）とSpatialAudio（音声）の両方が参照する。座標は床サイズ非依存の0〜1正規化、移動中は約10Hzのロスあり配信＋2秒ごとのハートビート再送（後から入室した人にも状態が伝わるように）。種別も同梱するので石↔人の変化が全員に即反映。**接続完了（`useConnectionState` が `Connected`）まで一切publishしない** — 接続前に`publishData`を呼ぶとLiveKit内部の送信路（`publisherConnectionPromise`）が失敗状態でキャッシュされ、以降チャット含む全データ送信が失敗し続けるため
     - **WASDキー移動**: `window`の`keydown`/`keyup`を購読し、`requestAnimationFrame`で連続移動（速度0.5正規化単位/秒）。チャット等の入力欄にフォーカスがある間は無効化（`document.activeElement`がinput/textarea/contentEditableかで判定）。キーを離した瞬間に確定位置をreliableで再送する
     - **ホップ演出**: `hopping: { [identity]: boolean }` を保持し、位置が実際に変化した参加者を350msだけ`true`にする（ハートビートによる同一座標の再送では反応しないよう差分をチェック）。ローカルはWASD/ドラッグどちらでも、リモートは受信した座標が前回と異なる場合に発火する
-  - `TentView.jsx`: テント内の2D俯瞰ビュー（SPEC §5.3・Phase 1）。`TentState`を参照して参加者を`AvatarSprite`として床面に配置し、自分のアバターはドラッグまたはWASDキーで移動できる。発話中は緑のリングで表示。移動中は`hopping`に応じてホップアニメーションを適用（石・草・人型が「歩く」のは不自然なため、歩行モーションの代わりにぴょんぴょん飛ぶ演出にしている）
+  - `TentView.jsx`: テント内の**2.5Dビュー**（SPEC §5.3・Phase 1）。`react-three-fiber`（Three.js）で、床だけ3D・アバターはカメラに正対する2Dビルボード（`@react-three/drei`の`Billboard`）という軽量な構成（教授案・Gemini議論で想定されていた「高ポリゴン3Dを避ける」方針を踏襲）。位置・アバター種別・ホップ状態の「正」は引き続き`TentState.jsx`が持ち、このファイルはそれを読んで描画するだけ（値を書き換えない）。アバターの絵文字・名前ラベルはCanvas 2D APIで描いてテクスチャ化してビルボードに貼る。人型は実線の金枠、非人間は破線の枠を**テクスチャに焼き込んで**区別（SPEC F1）。発話中は緑のグローをテクスチャに追加。ホップは`useFrame`内でY座標をサイン波で動かして表現。床のポインタードラッグ（クリック/タップ＋ドラッグでレイキャストし、ワールド座標→0〜1正規化に変換して`updateMyPos`を呼ぶ）とWASDキー（`TentState`側で処理済み）の両方に対応。カメラは自分のアバターを斜め上から追従。他参加者の位置は`THREE.MathUtils.damp`でなめらかに補間（従来のCSS transitionに相当）
+    - 検証用の別ページ（`client/src/mockup/`、`mockup.html`）で「2.5D化するとメタバース感が出るか」を先に試作し、良好だったためこの本実装に反映した。開発サーバー(`npm run dev`)でr3f由来の`Invalid hook call`が出ていた問題は、`vite.config.js`の`optimizeDeps.entries`に両エントリを指定することで解消済み
   - `SpatialAudio.jsx`: 空間オーディオ（SPEC F2・本アプリの中核）。`RoomAudioRenderer`の代わりに、各参加者の音声トラックをWeb Audio API（`GainNode`＋`StereoPannerNode`）経由で再生し、`TentState`のアバター間距離で音量、左右位置でステレオパンを制御（近い人ほど明瞭、遠い人はほぼ無音、右にいる人は右から聞こえる）。Chrome向けに無音のaudio要素へも同ストリームを割り当てる定番ワークアラウンドを実施。向きによる強調・遠方トラックの購読停止（帯域節約）は未実装
   - `ChatState.jsx`: チャットのメッセージ配列とデータチャネル購読（`useDataChannel('chat', ...)`、`publishData`方式。LiveKit標準の`useChat`/`sendText`は使わない）を保持する共有ストア（React Context）。`TentStateProvider`と同様、パネルの開閉に関係なく常にマウントされている（`CallScreen`直下）ため、チャットを閉じても履歴が消えず、閉じている間に届いたメッセージも取りこぼさない。`publishData`は自分には配信されないため、自分の送信メッセージは送信時にローカルへ即時追加する
   - `ChatPanel.jsx`: テキストチャットの見た目のみを担当（SPEC F6）。日本語UI（「メッセージを入力…」「送信」等）。`chatOpen`のトグルで表示/非表示にするのはこのコンポーネントの描画だけで、状態は`ChatState`側にあるため開閉しても消えない。石アバターでもチャットは可能（声を出せない段階の参加手段）
@@ -125,12 +126,12 @@ npm install
 npm run dev      # http://localhost:5173
 ```
 
-## 2.5D 検証モックアップ
+## 2.5D 検証モックアップ（採用済み・参考として残置）
 
-「平面の見下ろし」から「斜め見下ろし（2.5Dパース）＋ビルボードアバター」に変えると“場所らしさ／メタバース感”が出るかを、本番に影響を与えずに試すための実験ページ。
+「平面の見下ろし」から「斜め見下ろし（2.5Dパース）＋ビルボードアバター」に変えると“場所らしさ／メタバース感”が出るかを、本番に影響を与えずに試すために作った実験ページ。**検証の結果が良好だったため、本番の`TentView.jsx`に同じ方式（react-three-fiber＋ビルボード）を採用した**（上記コンポーネント構成を参照）。ページ自体は今後の見た目実験用に残してある。
 
 - URL: `https://yumoto-kyohei.github.io/third-place/mockup.html`（本番は `/third-place/`。別エントリなので本番のコード・動作には一切影響しない）
-- 技術: `three` + `@react-three/fiber` + `@react-three/drei`（教授のGemini議論で想定されていた「床だけ3D・アバターは2Dスプライトのビルボード」構成）。Three.jsは`mockup-*.js`にのみ含まれ、本番アプリのバンドル（`main-*.js`）には入らない
+- 技術: `three` + `@react-three/fiber` + `@react-three/drei`（教授のGemini議論で想定されていた「床だけ3D・アバターは2Dスプライトのビルボード」構成）。本番`TentView.jsx`も同じ依存を使うため、Three.js関連コードは`main-*.js`と`mockup-*.js`の両方から参照される共有チャンク（`Billboard-*.js`等）としてビルドされ、二重に含まれることはない
 - 中身: 芝生の床＋斜めからの追従カメラ、自分＋ダミー3体のビルボードアバター、WASD/タップ・ドラッグ移動＋ホップ。**LiveKit・音声・同期は無し**（見た目と操作感だけを試すもの）
 - 以前は`npm run dev`（Vite開発サーバー）でr3f由来の`Invalid hook call`が出ていたが、`vite.config.js`の`optimizeDeps.entries: ['index.html', 'mockup.html']`で解消済み。原因は、Viteの依存事前バンドルが`index.html`からのみクロールされ、`mockup.html`に直接アクセスすると依存関係が段階的にしか見つからず、再最適化→リロードを繰り返す過程でエラーになっていたため。両エントリを明示することで初回起動時に一括でスキャンされるようになった
 
