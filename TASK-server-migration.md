@@ -1,23 +1,24 @@
-# 実装指示書：バックエンドを Render → 研究室サーバー（ai1.binaural.me）へ移行
+# 実装指示書：バックエンドを Render → 研究室サーバー（ai1.haselab.net）へ移行
 
 この文書は実装担当（Sonnet）への指示書です。`README.md` と `SPEC.md`（特に §7.4 インフラ、§7.5 セキュリティ）を先に読んでから着手してください。
 
-**重要**：この作業は**コードを書くだけでは完結しません**。サーバー上での操作・ネットワーク管理者への依頼が必要で、それは湯本さん（人間）が行います。
-指示書内では【Sonnetの作業】と【湯本さんの作業】を明示的に分けています。Sonnetは【湯本さんの作業】を勝手に代行しようとせず、
-必要な手順・確認コマンドを提示し、結果を待ってから次に進むこと。
+**重要**：この作業は**コードを書くだけでは完結しません**。サーバー上での操作（既存nginx設定への追記など）が必要で、
+それは湯本さん（人間）、場合によっては管理者（後述）が行います。指示書内では【Sonnetの作業】と【湯本さんの作業】を
+明示的に分けています。Sonnetは【湯本さんの作業】を勝手に代行しようとせず、必要な手順・確認コマンドを提示し、
+結果を待ってから次に進むこと。
 
 ---
 
 ## 0. 目的とスコープ
 
 ### 目的
-バックエンド（トークン発行API）を Render の無料プランから研究室サーバー `ai1.binaural.me` へ移し、
-将来のログ保存基盤（SPEC F10）を自分たちの管理下に置ける状態にする。
+バックエンド（トークン発行API）を Render の無料プランから研究室サーバー `ai1.haselab.net`（実体は `ai1.binaural.me`
+と同一ホスト）へ移し、将来のログ保存基盤（SPEC F10）を自分たちの管理下に置ける状態にする。
 あわせて、Render無料プランのスリープ問題（初回アクセスで数十秒待たされる）を解消する。
 
 ### 今回やること
 - バックエンド（`server/`）を研究室サーバー上の Docker で常時稼働させる
-- HTTPS で公開し、GitHub Pages のフロントエンドから呼べるようにする
+- **既存のnginx（`ai1.haselab.net`用、443番で稼働中）に相乗りする形でHTTPS公開する**（新規にHTTPS化する作業は不要）
 - フロントエンドの接続先を切り替える（ビルド時に差し替えられるよう環境変数化する）
 
 ### 今回やらないこと（スコープ外）
@@ -25,32 +26,39 @@
 - **LiveKit のセルフホスト**（引き続き LiveKit Cloud を使う。UDPポート開放やTURNの問題を今回は持ち込まない）
 - フロントエンドの配信元の移動（GitHub Pages のまま。SPEC §7.4 も「GitHub Pages併用も可」としている）
 - 認証、深夜停止、複数テントなどの機能追加
+- **`ai-sandbox-server`リポジトリ（サーバーの全体設定を管理するprivateリポジトリ）自体の変更**。今回はそちらに
+  1箇所nginx設定を追記させてもらうだけで、sandbox/aigw等の既存の仕組みには一切触れない
 
 ---
 
-## 1. 現状の調査結果（2026-07-27時点、実測済み）
+## 1. 現状の調査結果（2026-07-27時点、実測・別リポジトリ確認済み）
 
-| 項目 | 実測値 |
+このサーバーには専用の管理リポジトリ `haselab-net/ai-sandbox-server`（private）があり、構成・権限モデルが
+ドキュメント化されている。移行作業の前に必ずこのリポジトリの `README.md` と `doc/CHANGELOG.md` に目を通すこと
+（アクセス権限があれば `git clone` できる）。以下はそこから分かった要点。
+
+| 項目 | 内容 |
 |---|---|
-| ホスト名 | `ai1.binaural.me` |
-| グローバルIP | `131.112.248.54`（外部から名前解決・到達可能） |
+| ホスト名 | `ai1.binaural.me`。**`ai1.haselab.net` はそのエイリアス（同一ホスト）** |
 | OS | Debian GNU/Linux 12 (bookworm) |
-| Docker | 29.6.2 / docker compose v5.3.1（利用可能） |
-| Node（ホスト上） | v18.20.4（Dockerを使うので直接は使わない想定） |
-| **80番ポート** | **外部から到達可能。`nginx/1.22.1` が 200 を返す** |
-| **443番ポート** | **外部から接続不可（閉じている）** |
-| sudo | パスワード必要（`sudo -n` は失敗） |
-| その他 | `172.17.0.1`（Dockerブリッジ）の 20073〜20095 番台を多数の何かがLISTEN中＝**他プロジェクトが同居している可能性が高い** |
+| Docker | 29.6.2 / docker compose v5.3.1（利用可能。ただし`docker`グループはroot相当権限とみなされ、意図的に絞られている） |
+| **443番ポート** | **既に開いていて動作している。** `ai1.haselab.net` 宛のTLS証明書（Let's Encrypt）が設定済みで、`https://ai1.haselab.net/` は200 OKを返す。**新規のHTTPS化作業（certbot実行など）は不要** |
+| ⚠️ 注意 | `ai1.binaural.me` という名前で直接443にアクセスすると接続できない（TLSのserver_nameが`ai1.haselab.net`にしか設定されていないため）。**アプリの公開URLは必ず`ai1.haselab.net`を使うこと** |
+| nginx設定ファイル | `/etc/nginx/sites-available/gdrive-oauth-callback`（ファイル名に反して、**ai1.haselab.net宛の443番サーバーブロック全体**がここに書かれている。gdrive専用ファイルではない） |
+| 既存のlocation | `/gdrive`、`/agents/`（aigw = スマホからAIエージェント操作するゲートウェイ）、`/sandbox/port<N>`（ユーザー本人のDockerサンドボックスへの認証付きプロキシ） |
+| **`/sandbox/port<N>` は使えない** | aigwのセッションCookie認証(`auth_request`)が必須の仕組みで、**ログインしていない一般ユーザー（third-placeを使う学生等）からはアクセスできない**。third-place用には**認証なしの新しいlocationブロックを追加する必要がある** |
+| sudo権限モデル | 一般ユーザーに広い`sudo`は渡していない方針。`admin`グループのメンバーでも、ユーザー管理用の5本の専用スクリプト（`adm-adduser`等）しか`sudo`実行できないよう`/etc/sudoers.d/admin`で厳密に制限されている。**nginx設定の編集やDockerコンテナの起動に使える一般sudoがあるかは、この文書だけでは断定できない** |
+| Docker利用例 | 各ユーザー用の開発用サンドボックスコンテナ（`devbox-<user>`）が存在し、ポートは`172.17.0.1:<port>`（Dockerブリッジのアドレス）で待ち受けている。これはnginxの`/sandbox/port<N>`から到達するための配置で、**third-placeのような単独のDocker Composeサービスは、必ずしもこの配置に合わせる必要はない**（`127.0.0.1`バインドで問題ない） |
+| このリポジトリの更新方針 | サーバー設定を変更したら、ホスト上の`/usr/local/share/doc/CHANGELOG.md`に追記し、変更したファイルを`ai-sandbox-server`リポジトリ側にも反映するのがこのサーバーの運用ルール。**third-placeのnginx location追加も、この慣習に従いCHANGELOGに記録すべき** |
 
-### ここから導かれる最重要事項
+### ここから導かれる結論
 
-- **HTTPS（443）が使えないと、この移行は成立しない。** 理由：
-  1. ブラウザは `localhost` 以外では **HTTPS でないとマイク・画面共有・WebRTC を許可しない**（Secure Context 要件）
-  2. フロントエンドは GitHub Pages（`https://`）で動作しており、**HTTPSページから `http://` のAPIを呼ぶとブラウザがブロックする**（Mixed Content）
-- 80番でnginxが動いているのは好都合（Let's Encrypt の HTTP-01 チャレンジに使える／リバースプロキシとして相乗りできる）。
-  **ただしホスト上に `nginx` コマンドが見つからなかった＝このnginxは別のユーザーがDockerで動かしている可能性が高い。**
-  勝手に設定を書き換えると他プロジェクトを壊すおそれがあるため、**必ず所有者を確認してから触ること**。
-- 20073〜20095番台が使用中なので、**このアプリのポートはそれらと衝突しないもの**を選ぶ（本書では暫定で `18080` を使う。衝突していたら変更してよい）。
+- **HTTPS自体は既に使える。新たにポートを開けてもらったり証明書を取ったりする必要はない。**
+  やるべきことは「`ai1.haselab.net`の既存443番サーバーブロックに、third-place用の新しいlocationブロックを1つ追加する」だけ
+- ただし、**この追加作業（nginx設定ファイルの編集＋`systemctl reload nginx`）に十分な権限（実質的なroot、または少なくともこのファイルへの書き込み＋nginxのreload権限）が湯本さんにあるかは未確認**。Step 0でここを必ず確認すること
+- 権限が無い場合は、サーバー管理者（ドキュメント中に登場する「hase」＝おそらく長谷川先生、または他の管理者）に
+  1箇所のlocationブロック追加を依頼する形になる。**追加する設定の中身自体はこの指示書で用意するので、
+  「このブロックを追加してreloadしてほしい」という依頼を渡せる状態にしておけばよい**
 
 ---
 
@@ -61,12 +69,12 @@
    │
    ├─ フロントエンド … https://yumoto-kyohei.github.io/third-place/   （GitHub Pages のまま。変更なし）
    │        │
-   │        └─①トークン要求 https://ai1.binaural.me/third-place/api/token
+   │        └─①トークン要求 https://ai1.haselab.net/third-place/api/token
    │                 │
    │                 ▼
-   │        [ai1.binaural.me]
-   │           nginx（443/HTTPS, Let's Encrypt）
-   │             └─ /third-place/api/ を localhost:18080 にリバースプロキシ
+   │        [ai1.haselab.net = ai1.binaural.me]
+   │           nginx（443/HTTPS。Let's Encrypt証明書は設定済み・変更不要）
+   │             └─ location /third-place/api/ → 127.0.0.1:18080 へリバースプロキシ（★今回追加する設定）
    │                   └─ Docker: third-place-server（Node/Express。トークン発行のみ）
    │                        └─（将来）ここに PostgreSQL を足してログ保存 …§7
    │
@@ -75,49 +83,46 @@
 
 **ポイント**
 - LiveKit Cloud は変更しないので、`LIVEKIT_URL` / `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` の値はそのまま流用できる
-- サブドメインを新設せず、**既存ドメインのパス `/third-place/api/` に相乗り**する（DNS変更が不要で、他プロジェクトとも共存しやすい）
-- 公開するのは HTTPS だけ。Nodeアプリは外部に直接公開せず、`127.0.0.1:18080` だけで待ち受けてnginx経由にする（SPEC §7.5）
+- **既存の443番サーバーブロックに、他の`location`（`/gdrive`、`/agents/`）と並ぶ形で`/third-place/api/`を追加するだけ**。
+  DNS変更・証明書取得・新しいサーバーブロックの作成は不要
+- `/sandbox/port<N>`は使わない（認証必須のため）。third-place用のlocationは**認証なしの素のリバースプロキシ**にする
+- 公開するのは既存の443だけ。Nodeアプリは外部に直接公開せず、`127.0.0.1:18080`だけで待ち受けてnginx経由にする（SPEC §7.5）
 
 ---
 
-## 3. Step 0：前提確認（**ブロッカー。ここが解決しないと先に進めない**）
+## 3. Step 0：権限確認（**ここが解決しないと Step 2 に進めない**）
 
 ### 【湯本さんの作業】サーバーにSSHして以下を確認する
 
 ```bash
-# (a) 80/443を誰がリッスンしているか（nginxの正体を突き止める）
-sudo ss -tlnp | grep -E ':80 |:443 '
+# (a) 自分に許可されているsudoコマンドを正確に確認する（最重要）
+sudo -l
 
-# (b) 動いているコンテナ一覧（nginxがDockerかどうか、ポートの空き状況）
-docker ps --format 'table {{.Names}}\t{{.Ports}}\t{{.Image}}'
+# (b) 一般グループ所属を確認（adminやdockerグループに入っているか）
+groups
 
-# (c) ホストにnginxが入っているか（入っていればDockerではなくホスト側の設定を触る）
-ls /etc/nginx/ 2>&1; systemctl status nginx 2>&1 | head -5
+# (c) dockerコマンドがsudo無しで使えるか
+docker ps
 
-# (d) sudoが実際に使えるか（パスワードを入力して確認）
-sudo true && echo "sudo 使える"
+# (d) nginx設定ファイルの現在の中身を確認（読むだけなら誰でも可能なはず）
+cat /etc/nginx/sites-available/gdrive-oauth-callback
 
 # (e) 18080番が空いているか
 ss -tln | grep 18080 || echo "18080は空き"
-
-# (f) ファイアウォール設定（見られれば）
-sudo iptables -L -n 2>&1 | head -20; sudo ufw status 2>&1 | head -5
 ```
 
 ### 確認すべき論点と、結果に応じた分岐
 
 | 確認事項 | 結果 | 対応 |
 |---|---|---|
-| **443を開けられるか** | 自分/研究室で開けられる | Step 2へ進む |
-| | 大学のFWで塞がれている | **ネットワーク管理者／長谷川先生に443開放を依頼する。これが通らないと移行不可**（→§8の代替案を検討） |
-| **80のnginxの所有者** | 自分（または研究室共用で触ってよい） | そのnginxに設定を追加して相乗りする |
-| | 他人のDockerコンテナ | **勝手に触らない。** 所有者に「`/third-place/api/` を18080へプロキシする設定を足してよいか」を相談する。断られた場合は自分専用のnginxコンテナを別ポートで立て、443を別途割り当ててもらう |
-| **sudoが使えるか** | 使える | Let's Encrypt・nginx設定・FW設定を自分で行える |
-| | 使えない | 証明書取得やnginx設定は管理者依頼が必要。Dockerだけで完結する構成（後述）を検討 |
+| `sudo -l` に `ALL` や `systemctl`, `nginx`, `vi /etc/nginx/*` 等が含まれる | 十分な権限あり | 湯本さん自身でStep 2のnginx編集・reloadを実施してよい |
+| `sudo -l` が `adm-*` の5本だけ（`ai-sandbox-server`のREADMEにある構成そのまま） | nginx編集の権限なし | **サーバー管理者（長谷川先生、または`ai-sandbox-server`のCHANGELOGに登場する管理者）に、5-2で用意するlocationブロックの追加とnginx reloadを依頼する**。Docker起動（Step 1後半）は`docker`グループに入っていれば自分でできる可能性がある（(c)の結果次第） |
+| `docker ps` がエラーなく実行できる | dockerグループに所属 | Step 1のDocker起動は自分で可能 |
+| `docker ps` が権限エラー | 未所属 | Docker起動も管理者依頼、または`sudo docker ...`が許可されているか要確認 |
 
 ### 【Sonnetの作業】
-このStep 0の結果が判明するまで、**サーバー側の設定ファイルを書き進めない**こと。
-ただし、結果に依存しない §4（アプリのDocker化）と §6（フロントエンドの環境変数化）は先行して進めてよい。
+この Step 0 の結果（特に nginx 編集権限の有無）が判明するまで、gitリポジトリ内の作業は進めてよいが
+（Step 1・Step 3 はサーバー権限に依存しない）、**サーバー上でのnginx設定変更・reloadを湯本さんに指示するのはStep 0確認後にすること**。
 
 ---
 
@@ -126,7 +131,7 @@ sudo iptables -L -n 2>&1 | head -20; sudo ufw status 2>&1 | head -5
 サーバー上で常時稼働させるため、`server/` をDockerで動かせるようにする。
 
 ### 4-1. `server/Dockerfile` を新規作成
-- ベースイメージは `node:20-alpine` 程度（ホストのNodeは18だがDocker内なので無関係）
+- ベースイメージは `node:20-alpine` 程度
 - `server/package.json` / `package-lock.json` をコピーして `npm ci --omit=dev`
 - ソースをコピーして `CMD ["node", "index.js"]`
 - 本番環境なので `NODE_ENV=production`
@@ -134,7 +139,9 @@ sudo iptables -L -n 2>&1 | head -20; sudo ufw status 2>&1 | head -5
 ### 4-2. リポジトリ直下に `docker-compose.yml` を新規作成
 - サービス名 `third-place-server`
 - `build: ./server`
-- **ポートは `127.0.0.1:18080:3001` とし、外部に直接公開しない**（nginx経由のみ。SPEC §7.5）
+- **ポートは `127.0.0.1:18080:3001` とし、外部に直接公開しない**（nginx経由のみ。SPEC §7.5）。
+  このサーバーの他プロジェクト（`devbox-*`）は`172.17.0.1`にバインドしているが、それは
+  nginxの`/sandbox/port<N>`という別の仕組み向けの配置なので、third-placeは素直に`127.0.0.1`でよい
 - `restart: unless-stopped`（サーバー再起動時も自動復帰）
 - 環境変数はサーバー上に置く `.env` から読む（`env_file`）。**`.env`はGitにコミットしない**（既存の`.gitignore`のまま）
 - 将来DBを足す場所をコメントで明示しておく（§7）
@@ -142,9 +149,9 @@ sudo iptables -L -n 2>&1 | head -20; sudo ufw status 2>&1 | head -5
 ### 4-3. `server/index.js` の調整
 - **`dotenv` の読み込みパスに注意**：現在 `../.env`（リポジトリ直下）を見ているが、Dockerでは `server/` だけをコピーする想定なので壊れる。
   `docker compose` の `env_file` で環境変数を渡すなら `dotenv` は無くても動く。
-  **ローカル開発（`npm run dev`）でも壊れないよう、`.env`が無ければ黙って無視する形にする**（`dotenv.config()`は失敗しても例外を投げないが、パス指定は要見直し）
+  **ローカル開発（`npm run dev`）でも壊れないよう、`.env`が無ければ黙って無視する形にする**
 - **ヘルスチェック用のエンドポイント `GET /healthz` を追加**（`{ ok: true }` を返すだけ）。
-  nginx設定やDockerの死活監視、移行後の疎通確認に使う
+  死活監視や移行後の疎通確認に使う
 - `ALLOWED_ORIGINS` は既に環境変数対応済みなのでコード変更不要
 
 ### 4-4. ローカルでの動作確認
@@ -158,9 +165,7 @@ docker compose down
 
 ---
 
-## 5. Step 2：サーバーで公開する（HTTPS化）
-
-**Step 0 で 443 が開けられることを確認してから着手すること。**
+## 5. Step 2：サーバーで公開する
 
 ### 5-1.【湯本さんの作業】コードをサーバーに配置して起動
 
@@ -180,12 +185,15 @@ curl -s http://127.0.0.1:18080/healthz    # {"ok":true} が返ればOK
 
 > **秘密情報の扱い**：`.env` は絶対にGitにコミットしない。サーバー上のファイル権限も `chmod 600 .env` にしておく。
 
-### 5-2.【湯本さんの作業】nginx にリバースプロキシ設定を追加
+### 5-2.【湯本さん、または権限のある管理者の作業】既存nginxにlocationを追加
 
-Step 0 で判明したnginxの所有者・形態に応じて、以下の設定を追加する（所有者が他人なら**必ず相談してから**）。
+`/etc/nginx/sites-available/gdrive-oauth-callback` の `server { listen 443 ssl; server_name ai1.haselab.net; ... }`
+ブロックの中に、既存の `location /gdrive { ... }` などと並べて以下を追加する。
+**認証は付けない**（`/sandbox/port<N>`と違い、third-placeは一般の学生が使うので誰でもアクセスできる必要がある）。
 
 ```nginx
-# https のサーバーブロック内に追加
+# third-place: バックエンド（トークン発行API）へのリバースプロキシ。認証なし（一般公開）。
+# third-place/server は 127.0.0.1:18080 で待ち受けている（third-place/docker-compose.yml参照）。
 location /third-place/api/ {
     proxy_pass http://127.0.0.1:18080/api/;
     proxy_http_version 1.1;
@@ -196,27 +204,23 @@ location /third-place/api/ {
 }
 ```
 
-> nginxがDockerコンテナの場合、`127.0.0.1` はコンテナ内を指してしまい繋がらない。
-> その場合は `host.docker.internal` か Dockerブリッジのアドレス（`172.17.0.1:18080`）を使うか、
-> 同じDockerネットワークに参加させる必要がある。**ここは実際の構成を見てから判断すること。**
-
-### 5-3.【湯本さんの作業】Let's Encrypt でHTTPS証明書を取得
-
-80番が外部から到達できるので、HTTP-01チャレンジが使える。
-
+追加後：
 ```bash
-sudo apt install certbot python3-certbot-nginx
-sudo certbot --nginx -d ai1.binaural.me
+sudo nginx -t              # 構文チェック
+sudo systemctl reload nginx
 ```
-- certbot が自動でnginxに443の設定を追加し、証明書の自動更新も設定してくれる
-- **他プロジェクトのnginx設定を書き換える可能性があるため、所有者に確認してから実行すること**
-- nginxがDockerの場合は certbot の使い方が変わる（`--webroot` を使う等）。構成に合わせて調整
 
-### 5-4. 疎通確認
+- Step 0で編集権限が無いと分かった場合は、**この`location`ブロックをそのまま管理者に渡して**
+  「`/etc/nginx/sites-available/gdrive-oauth-callback`の443番サーバーブロックにこれを追加して`nginx -t && systemctl reload nginx`してほしい」
+  と依頼する
+- `ai-sandbox-server`リポジトリの運用ルールに従い、変更後は**そのリポジトリ側の`etc/nginx/sites-available/gdrive-oauth-callback`にも今回の追記を反映**し、
+  `doc/CHANGELOG.md`に一言（例：「third-placeのAPIプロキシとして`/third-place/api/`locationを追加」）を追記しておくこと（管理者と相談の上）
+
+### 5-3. 疎通確認
 ```bash
-# 外部から（自分のPCで）
-curl -s https://ai1.binaural.me/third-place/api/healthz
-curl -s "https://ai1.binaural.me/third-place/api/token?identity=test" | head -c 200
+# 外部から（自分のPCで）。ホスト名は必ず ai1.haselab.net を使うこと（ai1.binaural.meではTLSが通らない）
+curl -s https://ai1.haselab.net/third-place/api/healthz
+curl -s "https://ai1.haselab.net/third-place/api/token?identity=test" | head -c 200
 ```
 - **完了条件**：外部からHTTPSでトークンが取得できること
 
@@ -237,7 +241,7 @@ const TOKEN_SERVER_URL = import.meta.env.PROD
 - `VITE_TOKEN_SERVER_URL` を参照し、未設定なら従来通りのフォールバック（開発時は `http://localhost:3001`）
 - `client/.env.production` に本番の値を書く（**これは公開URLであり秘密情報ではないのでコミットしてよい**）
   ```
-  VITE_TOKEN_SERVER_URL=https://ai1.binaural.me/third-place/api
+  VITE_TOKEN_SERVER_URL=https://ai1.haselab.net/third-place/api
   ```
 - **注意**：現在のコードは `${TOKEN_SERVER_URL}/api/token` と組み立てている。上記URLは既に `/api` を含むので、
   **パスの二重付与（`/api/api/token`）にならないよう、組み立て方を整理すること**。
@@ -274,22 +278,7 @@ const TOKEN_SERVER_URL = import.meta.env.PROD
 
 ---
 
-## 8. もし443が開けられなかった場合の代替案（Step 0の結果次第）
-
-443が大学のファイアウォールで開放できない場合、この移行はそのままでは実現できない。以下を検討する（いずれも要相談）：
-
-1. **別のポートでHTTPSを公開**（例：8443）。ブラウザはポート番号が違ってもHTTPSなら Secure Context を満たすので機能的には動く。
-   URLが `https://ai1.binaural.me:8443/...` と不格好になるが実用上は問題ない。**そのポートの開放は必要**
-2. **既に443が開いている別の研究室サーバー**があれば、そちらに相乗りする
-3. **当面Renderを継続**し、サーバー移行はネットワーク要件が整うまで保留する
-   （ログ保存が必要になった時点で改めて交渉する）
-
-**Sonnetへ**：この判断は技術だけで決められない（大学のポリシー・他プロジェクトへの影響が絡む）ため、
-勝手に代替案を実装せず、状況を整理してユーザーに提示し、判断を仰ぐこと。
-
----
-
-## 9. 各ステップ完了時のチェックリスト
+## 8. 各ステップ完了時のチェックリスト
 - [ ] 既存機能（入室・音声・空間オーディオ・チャット・画面共有・描き込み・2.5D移動）が壊れていない（2タブで確認）
 - [ ] `.env` や APIキーがGitにコミットされていない（`git status` で確認）
 - [ ] `npx oxlint src/` に新規エラーなし、`cd client && npm run build` 成功
@@ -298,7 +287,10 @@ const TOKEN_SERVER_URL = import.meta.env.PROD
 
 ---
 
-## 10. 参考：この移行の位置づけ
+## 9. 参考：この移行の位置づけ
 SPEC §7.4 で「将来（研究室サーバー移行後）」として計画されていたもののうち、**バックエンドの移行のみ**を先行実施する。
 SFU（LiveKit）のセルフホストとDB導入は据え置き、段階的にリスクを分けて進める。
 目的は「Renderのスリープ解消」と「将来のログ基盤（F10）を自分たちの管理下に置く準備」。
+当初は「443番ポートが閉じている」という調査結果に基づき証明書取得やFW開放が必要と考えていたが、
+`ai-sandbox-server`リポジトリの確認により、**正しいホスト名（`ai1.haselab.net`）を使えば443は既に利用可能**と判明し、
+作業内容を「既存nginxへの1箇所のlocation追加」に縮小できた。
