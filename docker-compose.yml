@@ -1,0 +1,12 @@
+services:
+  third-place-server:
+    build: ./server
+    # nginx (443) からのみ到達させる。外部に直接公開しない。
+    ports:
+      - "127.0.0.1:18080:3001"
+    env_file:
+      - .env
+    restart: unless-stopped
+
+  # 将来ログ保存基盤（SPEC F10）を足すときは、ここに postgres サービスを追加する。
+  # 実装前に SPEC F10（仮名化・同意フロー・研究倫理審査）の要件を確認すること。

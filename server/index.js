@@ -5,6 +5,8 @@ import express from 'express';
 import cors from 'cors';
 import { AccessToken } from 'livekit-server-sdk';
 
+// ローカル開発ではリポジトリ直下の .env を読む。Docker では server/ だけをコピーし
+// 環境変数は compose の env_file から渡るため、ファイルが無くても失敗させない。
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
@@ -36,6 +38,11 @@ app.use(
     },
   }),
 );
+
+// 死活監視・移行後の疎通確認用。nginxは /third-place/api/ だけをプロキシするので /api 配下に置く。
+app.get('/api/healthz', (req, res) => {
+  res.json({ ok: true });
+});
 
 app.get('/api/token', async (req, res) => {
   const identity = req.query.identity;
