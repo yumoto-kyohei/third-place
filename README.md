@@ -7,14 +7,15 @@
 ## システム構成
 
 ```
-┌──────────────────────┐        ┌──────────────────────┐        ┌───────────────────────┐
-│  client (React/Vite)  │        │  server (Node/Express)│        │  LiveKit Cloud (SFU)   │
-│  GitHub Pages で配信  │──①──▶│  Render で稼働         │──②──▶│  音声のリレー          │
-│                        │◀─────③音声/参加者情報──────────────────┤  東京(Japan A)リージョン│
-└──────────────────────┘        └──────────────────────┘        └───────────────────────┘
+┌──────────────────────┐        ┌──────────────────────────┐        ┌───────────────────────┐
+│  client (React/Vite)  │        │  server (Node/Express)    │        │  LiveKit Cloud (SFU)   │
+│  GitHub Pages で配信  │──①──▶│  ai2.haselab.net の Docker │──②──▶│  音声のリレー          │
+│                        │        │  （nginx 443 経由で公開） │        │  東京(Japan A)リージョン│
+│                        │◀─────③音声/参加者情報──────────────────────┤                        │
+└──────────────────────┘        └──────────────────────────┘        └───────────────────────┘
 ```
 
-- ① クライアントが `GET /api/token?identity=<表示名>` をバックエンドに叩き、入室用トークンを取得する
+- ① クライアントが `GET /api/token?identity=<表示名>` をバックエンド（`https://ai2.haselab.net/third-place/api/token`）に叩き、入室用トークンを取得する
 - ② バックエンドが LiveKit の API Key/Secret でJWTアクセストークンを署名して発行する（Secretはバックエンドだけが保持し、クライアントには渡らない）
 - ③ クライアントはそのトークンを使って LiveKit Cloud の WebSocket/WebRTC エンドポイントに直接接続し、音声の送受信はLiveKit Cloud（SFU）経由で行う。バックエンドは音声データ自体には関与しない
 
@@ -59,26 +60,38 @@ WebRTCは本来1対1通話を前提とした技術で、複数人が同時に通
     - 座標はキャンバスサイズに依存しないよう0〜1に正規化して送受信
     - 消しゴムは「ストローク単位」で消える方式（線や丸に触れると、その線・丸ごと削除）であり、部分消しではない
     - ペンの描画中の点（`pen-move`）はロスあり配信（`reliable:false`）、開始・終了・丸・消去・全消去はロスなし配信（`reliable:true`）
-- テキストチャットはLiveKit標準のチャット機能（`<Chat />`コンポーネント）をそのまま使用。独自のデータチャネル実装ではなく、LiveKit組み込みのメッセージング機構に乗っている。UIラベルは英語のまま（"Enter a message...", "Send"等）で日本語化はされていない
 
 ### バックエンド（`server/`）
 
 - Node.js（ESM） + Express
 - `livekit-server-sdk`: `AccessToken` を使ってJWTを発行するだけの薄いAPI（`server/index.js`）
-- エンドポイントは `GET /api/token` の1つのみ。クエリパラメータ `identity`（表示名）を受け取り、`{ url, token }` をJSONで返す
+- エンドポイントは2つ。`GET /api/token`（クエリパラメータ `identity`（表示名）を受け取り、`{ url, token }` をJSONで返す）と `GET /api/healthz`（`{ ok: true }` を返すだけの死活監視用）
+  - `healthz` を `/api` の外ではなく**内側**に置いているのは、nginxが `/third-place/api/` だけをリバースプロキシしているため（`/healthz` では外部から到達できない）
 - 発行するトークンの権限（grant）: `roomJoin: true, canPublish: true, canSubscribe: true`（ルームは `lobby`固定）
 - CORSは許可オリジンを限定（GitHub Pages本番 `https://yumoto-kyohei.github.io` とローカル開発 `http://localhost:5173` / `http://127.0.0.1:5173`）。環境変数 `ALLOWED_ORIGINS`（カンマ区切り）で上書き可能
-- ポートはRenderが注入する `process.env.PORT` を優先し、なければ `3001`（ローカル用）
+- 待ち受けポートは `process.env.PORT`、なければ `3001`。Docker上ではコンテナ内3001を `127.0.0.1:18080` にバインドしている（`docker-compose.yml`）
 
 ### インフラ・ホスティング
 
 | コンポーネント | ホスティング先 | デプロイ方法 |
 |---|---|---|
 | フロントエンド（静的ビルド成果物） | GitHub Pages（`https://yumoto-kyohei.github.io/third-place/`） | `main`ブランチへのpush時に GitHub Actions（`.github/workflows/deploy-client.yml`）が `client/` をビルドし自動公開 |
-| バックエンド（Node.jsプロセス） | Render 無料プラン（`https://third-place.onrender.com`） | RenderがGitHubリポジトリの`main`ブランチを監視し、push時に自動ビルド・再起動（Root Directory: `server`, Build: `npm install`, Start: `npm start`） |
+| バックエンド（Node.jsプロセス） | **研究室サーバー `ai2.haselab.net` 上の Docker**（公開URL: `https://ai2.haselab.net/third-place/api/`） | サーバー上の `~/third-place` で `git pull && docker compose up -d --build`（**手動**。自動デプロイではない） |
 | SFU / 音声リレー | LiveKit Cloud（無料 Build プラン） | 東京(Japan A)リージョンのプロジェクトを使用 |
 
-Render無料プランは一定時間アクセスがないとスリープし、次回アクセス時に起動し直すため（数十秒かかる）、初回アクセスが遅いことがある。
+**バックエンドの公開構成**：Nodeプロセスは外部に直接公開せず `127.0.0.1:18080` だけで待ち受け、
+サーバー上で既に稼働している nginx（443/HTTPS、Let's Encrypt証明書）に `location /third-place/api/` を
+追加してリバースプロキシしている。`restart: unless-stopped` によりサーバー再起動時も自動復帰する。
+移行の全経緯・落とし穴・運用手順は [TASK-server-migration.md](TASK-server-migration.md) を参照。
+
+> **ホスト名の注意**：`ai2.binaural.me` も同一ホストだが、TLS証明書のSANが `ai2.haselab.net` のみのため
+> `ai2.binaural.me` ではHTTPSが通らない。**必ず `ai2.haselab.net` を使うこと。**
+
+**2026-07-28以前は Render 無料プラン（`https://third-place.onrender.com`）で稼働していた。**
+無料プランは一定時間アクセスがないとスリープし、次回アクセス時の起動に数十秒かかるため、
+初回アクセスが遅いという問題があった。これを解消するために研究室サーバーへ移行した。
+Renderのサービスは切り戻し用に当面残してあり（`main`を監視して自動デプロイされ続ける）、
+`client/.env.production` の `VITE_TOKEN_SERVER_URL` を Render のURLに戻せば即座にロールバックできる。
 
 ## ディレクトリ構成
 
@@ -90,7 +103,7 @@ third-place/
 │       ├── CallScreen.jsx       アバター切替/マイク/画面共有ボタン・テント内ビュー
 │       ├── AvatarSprite.jsx     アバターの見た目（石/草/人）・種別判定ヘルパー
 │       ├── TentState.jsx        位置/アバター種別の共有ストア・データチャネル同期
-│       ├── TentView.jsx         テント内2D俯瞰ビュー・アバター移動
+│       ├── TentView.jsx         テント内2.5Dビュー（r3f・ビルボード）・アバター移動
 │       ├── SpatialAudio.jsx     空間オーディオ（距離減衰＋ステレオパン）
 │       ├── ChatState.jsx        チャットのメッセージ状態・データチャネル同期（常時マウント）
 │       ├── ChatPanel.jsx        日本語テキストチャットの見た目
@@ -100,24 +113,49 @@ third-place/
 │           ├── main.jsx        モックアップのReactエントリ
 │           └── Mockup.jsx      Three.js(react-three-fiber)による2.5Dパース＋ビルボード
 ├── mockup.html       モックアップのHTMLエントリ（本番= index.html とは別）
-├── server/           Express バックエンド。Renderへデプロイ
-│   └── index.js      トークン発行APIのみを提供
+│   client/.env.production   本番ビルド時のトークンAPIのベースURL（公開URLなのでコミット済み）
+├── server/           Express バックエンド。ai2上のDockerで稼働
+│   ├── index.js      トークン発行API（/api/token）と死活監視（/api/healthz）
+│   └── Dockerfile    バックエンドのコンテナイメージ定義
+├── docker-compose.yml  バックエンドの起動設定（127.0.0.1:18080で待ち受け・自動再起動）
 ├── .github/workflows/deploy-client.yml   client を GitHub Pages に自動デプロイするワークフロー
-├── .env              LiveKitの接続情報（Git管理外。ローカル開発時にserverが読む）
+├── .env              LiveKitの接続情報（Git管理外。ローカル開発時とサーバー稼働時にserverが読む）
 └── .env.example      .envに必要な変数のテンプレート
 ```
 
 ## 環境変数
 
-`server/`（および ローカル実行時は プロジェクトルートの `.env`）が読む値。値はLiveKit CloudのプロジェクトSettingsから取得する。
+### バックエンド（`server/`）
+
+プロジェクト直下の `.env` から読む（Docker稼働時は `docker-compose.yml` の `env_file` 経由）。
+値はLiveKit CloudのプロジェクトSettingsから取得する。
 
 | 変数名 | 内容 |
 |---|---|
 | `LIVEKIT_URL` | LiveKit CloudプロジェクトのWebSocket URL（`wss://xxxx.livekit.cloud`） |
 | `LIVEKIT_API_KEY` | LiveKit CloudのAPI Key |
 | `LIVEKIT_API_SECRET` | LiveKit CloudのAPI Secret（非公開情報。Gitにコミットしない・チャット等にも貼らない） |
+| `ALLOWED_ORIGINS` | （任意）CORSで許可するオリジンをカンマ区切りで上書き |
 
-ローカル開発では `third-place/.env` に、Render本番環境ではRenderダッシュボードの環境変数設定にそれぞれ登録している。
+本番（ai2）では `~/third-place/.env`（`chmod 600`）に置いている。
+**このファイルを `~/sandhome/` 配下に置かないこと** — そこはsandboxコンテナにマウントされており、
+コンテナ内で動くAIエージェントが同じuidで動くため、`chmod 600` でもSecretが読まれてしまう。
+
+> **変数名の打ち間違いに注意**：`LIVEKIT_URL` が正しく渡っていないと、`/api/token` のレスポンスから
+> `url` が欠落し、**「入室はできるが他の参加者が誰も見えない」**という分かりにくい症状になる
+> （ブラウザのコンソールに `no livekit url provided`）。実際にこれで一度ハマっている。
+> `docker compose exec third-place-server env | grep LIVEKIT` でコンテナが見ている変数名を確認できる。
+> なお `.env` を変更したときは `docker compose restart` では反映されず、
+> `docker compose up -d --force-recreate` が必要。
+
+### フロントエンド（`client/`）
+
+| 変数名 | 内容 |
+|---|---|
+| `VITE_TOKEN_SERVER_URL` | トークンAPIのベースURL（**末尾の `/api` まで含む**）。未設定時は `http://localhost:3001/api` |
+
+本番の値は `client/.env.production` に記述してコミットしている（公開URLであり秘密情報ではない）。
+ビルド時に埋め込まれるため、**接続先を変えるにはこのファイルを変更して再デプロイする**必要がある。
 
 ## ローカルでの動かし方
 
@@ -133,6 +171,32 @@ npm install
 npm run dev      # http://localhost:5173
 ```
 
+開発時は `VITE_TOKEN_SERVER_URL` が未設定なので、フロントは自動的に `http://localhost:3001/api` を見る。
+
+## 本番バックエンドの運用（ai2.haselab.net）
+
+サーバーにSSHし、`~/third-place` で操作する（sandboxコンテナの中ではなくホストのシェル）。
+
+```bash
+# 状態確認
+docker compose ps
+docker compose logs --tail=50 third-place-server
+
+# コード更新を反映
+git pull && docker compose up -d --build
+
+# .env を変更したとき（restartでは反映されない）
+docker compose up -d --force-recreate
+
+# 生存確認
+curl -s https://ai2.haselab.net/third-place/api/healthz             # {"ok":true}
+curl -s "https://ai2.haselab.net/third-place/api/token?identity=t"  # url と token の両方が返ること
+```
+
+nginx設定（`location /third-place/api/`）は `/etc/nginx/sites-available/gdrive-oauth-callback` の
+443番サーバーブロック内にある。このファイルはgdrive・aigw・sandboxプロキシも定義しているため、
+編集したら**必ず `sudo nginx -t` で構文チェックしてから** `sudo systemctl reload nginx` すること。
+
 ## 2.5D 検証モックアップ（採用済み・参考として残置）
 
 「平面の見下ろし」から「斜め見下ろし（2.5Dパース）＋ビルボードアバター」に変えると“場所らしさ／メタバース感”が出るかを、本番に影響を与えずに試すために作った実験ページ。**検証の結果が良好だったため、本番の`TentView.jsx`に同じ方式（react-three-fiber＋ビルボード）を採用した**（上記コンポーネント構成を参照）。ページ自体は今後の見た目実験用に残してある。
@@ -145,10 +209,12 @@ npm run dev      # http://localhost:5173
 ## 現状の制約・今後の予定
 
 - ルームは `lobby` 1つのみ固定（複数ルーム・部屋作成機能は未実装）
-- 音声通話（空間オーディオ付き）＋画面共有＋画面への描き込み＋テキストチャット＋テント内2Dビュー（アバター移動・石/草/人の切替）まで実装済み。テーブル分割・複数テント・通り画面は未実装（SPEC Phase 2〜で今後追加）
+- 音声通話（空間オーディオ付き）＋画面共有＋画面への描き込み＋テキストチャット＋テント内2.5Dビュー（アバター移動・石/草/人の切替）まで実装済み。テーブル分割・複数テント・通り画面は未実装（SPEC Phase 2〜で今後追加）。ボード機能（2.5D空間内に画面共有/掲示板を立てる）は [TASK-2.5D-boards.md](TASK-2.5D-boards.md) に計画あり・未着手
 - 画面共有は同時に1人のみ想定（複数人が同時共有した場合の表示制御は未実装、`ScreenShareStage`は最初の1トラックのみ表示）
 - 描き込みの色・太さは固定（ペンは赤、丸は橙、変更UIなし）
 - チャットは日本語UI（`ChatPanel.jsx`）。テント（ルーム）単位。テーブル単位チャットは未対応
 - チャットのメッセージ履歴は「今そのテントに接続している間」だけ保持される（`ChatState`がその場のReact state。サーバー側には保存しない）。途中入室者やリロード後は、参加より前のメッセージは見えない。サーバー側でのログ保存はSPEC F10（ログ収集基盤）のスコープ
-- CORSはオリジン無制限
-- 認証・ユーザー管理なし（表示名を自己申告するのみ）
+- 認証・ユーザー管理なし（表示名を自己申告するのみ）。CORSはオリジンを限定しているが、
+  トークン発行APIそのものは認証なしで公開されている（URLを知っていれば誰でもトークンを取得でき、`lobby`に入室できる）
+- バックエンド移行の積み残し：Renderのサービス停止（切り戻し用に残置中）、
+  ai2の`/usr/local/share/doc/CHANGELOG.md`へのnginx変更の記録。詳細は [TASK-server-migration.md](TASK-server-migration.md)
