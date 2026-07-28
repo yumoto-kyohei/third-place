@@ -1,24 +1,35 @@
-# 実装指示書：バックエンドを Render → 研究室サーバー（ai1.haselab.net）へ移行
+# 実装指示書：バックエンドを Render → 研究室サーバー（ai2.haselab.net）へ移行
 
 この文書は実装担当（Sonnet）への指示書です。`README.md` と `SPEC.md`（特に §7.4 インフラ、§7.5 セキュリティ）を先に読んでから着手してください。
 
-**重要**：この作業は**コードを書くだけでは完結しません**。サーバー上での操作（既存nginx設定への追記など）が必要で、
-それは湯本さん（人間）、場合によっては管理者（後述）が行います。指示書内では【Sonnetの作業】と【湯本さんの作業】を
-明示的に分けています。Sonnetは【湯本さんの作業】を勝手に代行しようとせず、必要な手順・確認コマンドを提示し、
-結果を待ってから次に進むこと。
+> **改訂（2026-07-28）：移行先は `ai1` ではなく `ai2.haselab.net`**
+> 当初この文書は移行先を `ai1.haselab.net` として書かれていたが、実際の移行先は
+> **third-place開発用に `ai1` の構成をコピーして立てた `ai2.haselab.net`**（131.112.248.55。`ai1`とは別ホスト・別IP）である。
+> **`ai2` では湯本さんが管理者権限を持つ**（`docker`グループ所属・root相当の操作が可能）ため、
+> 当初想定していた「権限が無いので管理者（hase）に依頼する」という分岐は**不要**になった。
+> なお `ai2` にマウントされている `/usr/local/share/doc/` は `ai1` からのコピーであり、
+> 記述されたホスト名・権限モデル（`sandboxusers`のみ／`docker`グループは誰にも渡さない等）は
+> **`ai1` のポリシーであって `ai2` の現状ではない**。ドキュメントは構成の雛形として読み、
+> 実際の値は `ai2` 上で都度確認すること。
+
+**重要**：この作業は**コードを書くだけでは完結しません**。サーバー上での操作（Dockerコンテナ起動、既存nginx設定への追記など）が
+必要で、それは湯本さん（人間）が `ai2` のホストシェル上で行います。
+Sandboxコンテナ内で動くSonnetからは `docker` コマンドも `/etc/nginx` も見えないため、**代行できません**。
+指示書内では【Sonnetの作業】と【湯本さんの作業】を明示的に分けています。Sonnetは【湯本さんの作業】を
+勝手に代行しようとせず、必要な手順・確認コマンドを提示し、結果を待ってから次に進むこと。
 
 ---
 
 ## 0. 目的とスコープ
 
 ### 目的
-バックエンド（トークン発行API）を Render の無料プランから研究室サーバー `ai1.haselab.net`（実体は `ai1.binaural.me`
+バックエンド（トークン発行API）を Render の無料プランから研究室サーバー `ai2.haselab.net`（実体は `ai2.binaural.me`
 と同一ホスト）へ移し、将来のログ保存基盤（SPEC F10）を自分たちの管理下に置ける状態にする。
 あわせて、Render無料プランのスリープ問題（初回アクセスで数十秒待たされる）を解消する。
 
 ### 今回やること
 - バックエンド（`server/`）を研究室サーバー上の Docker で常時稼働させる
-- **既存のnginx（`ai1.haselab.net`用、443番で稼働中）に相乗りする形でHTTPS公開する**（新規にHTTPS化する作業は不要）
+- **既存のnginx（`ai2.haselab.net`用、443番で稼働中）に相乗りする形でHTTPS公開する**（新規にHTTPS化する作業は不要）
 - フロントエンドの接続先を切り替える（ビルド時に差し替えられるよう環境変数化する）
 
 ### 今回やらないこと（スコープ外）
@@ -31,34 +42,34 @@
 
 ---
 
-## 1. 現状の調査結果（2026-07-27時点、実測・別リポジトリ確認済み）
+## 1. 現状の調査結果（`ai2` について 2026-07-28 に実測）
 
-このサーバーには専用の管理リポジトリ `haselab-net/ai-sandbox-server`（private）があり、構成・権限モデルが
-ドキュメント化されている。移行作業の前に必ずこのリポジトリの `README.md` と `doc/CHANGELOG.md` に目を通すこと
-（アクセス権限があれば `git clone` できる）。以下はそこから分かった要点。
+`ai1` には専用の管理リポジトリ `haselab-net/ai-sandbox-server`（private）があり、構成・権限モデルが
+ドキュメント化されている。`ai2` はその構成のコピーなので、**構成の雛形を理解する目的で**このリポジトリの
+`README.md` と `doc/CHANGELOG.md`（およびホスト上の `/usr/local/share/doc/`）に目を通すのは有用。
+ただし**そこに書かれた値をそのまま `ai2` の現状と信じないこと**（下表の「実測」列が優先）。
 
-| 項目 | 内容 |
+| 項目 | `ai2` での実測値（2026-07-28） |
 |---|---|
-| ホスト名 | `ai1.binaural.me`。**`ai1.haselab.net` はそのエイリアス（同一ホスト）** |
-| OS | Debian GNU/Linux 12 (bookworm) |
-| Docker | 29.6.2 / docker compose v5.3.1（利用可能。ただし`docker`グループはroot相当権限とみなされ、意図的に絞られている） |
-| **443番ポート** | **既に開いていて動作している。** `ai1.haselab.net` 宛のTLS証明書（Let's Encrypt）が設定済みで、`https://ai1.haselab.net/` は200 OKを返す。**新規のHTTPS化作業（certbot実行など）は不要** |
-| ⚠️ 注意 | `ai1.binaural.me` という名前で直接443にアクセスすると接続できない（TLSのserver_nameが`ai1.haselab.net`にしか設定されていないため）。**アプリの公開URLは必ず`ai1.haselab.net`を使うこと** |
-| nginx設定ファイル | `/etc/nginx/sites-available/gdrive-oauth-callback`（ファイル名に反して、**ai1.haselab.net宛の443番サーバーブロック全体**がここに書かれている。gdrive専用ファイルではない） |
-| 既存のlocation | `/gdrive`、`/agents/`（aigw = スマホからAIエージェント操作するゲートウェイ）、`/sandbox/port<N>`（ユーザー本人のDockerサンドボックスへの認証付きプロキシ） |
+| ホスト名 | `ai2.binaural.me` / `ai2.haselab.net` はエイリアス（同一ホスト、131.112.248.55）。`ai1`（131.112.248.54）とは**別マシン** |
+| OS | Debian GNU/Linux 12 (bookworm)（`ai1`からのコピー） |
+| Docker | 利用可能。**`kyumoto` は `docker` グループに所属**（`/etc/group`: `docker:x:996:hase,kyumoto`）。`ai1`の「dockerグループは誰にも渡さない」方針は`ai2`には適用されていない |
+| **443番ポート** | **既に開いていて動作している。** `https://ai2.haselab.net/` は 200 OK。Let's Encrypt証明書（`CN=ai2.haselab.net`、2026-07-27発行・2026-10-25まで有効）が設定済み。**新規のHTTPS化作業（certbot実行など）は不要** |
+| ⚠️ 注意 | `ai2.binaural.me` という名前で443にアクセスするとTLS検証に失敗する（証明書のSANが `ai2.haselab.net` のみ）。**アプリの公開URLは必ず`ai2.haselab.net`を使うこと** |
+| `/third-place/api/` パス | **未使用（現在404）**。競合なし |
+| 18080番ポート | **空き**（Dockerブリッジ`172.17.0.1:18080`は接続不可＝未使用） |
+| nginx設定ファイル | **要確認**。`ai1`では`/etc/nginx/sites-available/gdrive-oauth-callback`にファイル名に反して443サーバーブロック全体が書かれている。`ai2`もコピーなら同じはずだが、**Step 0でホスト上から実際に確認すること**（sandboxコンテナ内からは`/etc/nginx`が見えない） |
 | **`/sandbox/port<N>` は使えない** | aigwのセッションCookie認証(`auth_request`)が必須の仕組みで、**ログインしていない一般ユーザー（third-placeを使う学生等）からはアクセスできない**。third-place用には**認証なしの新しいlocationブロックを追加する必要がある** |
-| sudo権限モデル | 一般ユーザーに広い`sudo`は渡していない方針。`admin`グループのメンバーでも、ユーザー管理用の5本の専用スクリプト（`adm-adduser`等）しか`sudo`実行できないよう`/etc/sudoers.d/admin`で厳密に制限されている。**nginx設定の編集やDockerコンテナの起動に使える一般sudoがあるかは、この文書だけでは断定できない** |
-| Docker利用例 | 各ユーザー用の開発用サンドボックスコンテナ（`devbox-<user>`）が存在し、ポートは`172.17.0.1:<port>`（Dockerブリッジのアドレス）で待ち受けている。これはnginxの`/sandbox/port<N>`から到達するための配置で、**third-placeのような単独のDocker Composeサービスは、必ずしもこの配置に合わせる必要はない**（`127.0.0.1`バインドで問題ない） |
-| このリポジトリの更新方針 | サーバー設定を変更したら、ホスト上の`/usr/local/share/doc/CHANGELOG.md`に追記し、変更したファイルを`ai-sandbox-server`リポジトリ側にも反映するのがこのサーバーの運用ルール。**third-placeのnginx location追加も、この慣習に従いCHANGELOGに記録すべき** |
+| Docker利用例 | 各ユーザー用の開発用サンドボックスコンテナ（`devbox-<user>`）が`172.17.0.1:<port>`で待ち受けている。これはnginxの`/sandbox/port<N>`から到達するための配置で、**third-placeのような単独のDocker Composeサービスは、必ずしもこの配置に合わせる必要はない**（`127.0.0.1`バインドで問題ない） |
+| ドキュメントの更新方針 | サーバー設定を変更したら、ホスト上の`/usr/local/share/doc/CHANGELOG.md`に追記するのが`ai1`由来の運用ルール。**`ai2`でも同じ慣習に従い、third-placeのnginx location追加をCHANGELOGに記録しておくこと**（`ai2`の記録が`ai1`のドキュメントと混ざらないよう、`ai2`固有の変更である旨を明記する） |
 
 ### ここから導かれる結論
 
-- **HTTPS自体は既に使える。新たにポートを開けてもらったり証明書を取ったりする必要はない。**
-  やるべきことは「`ai1.haselab.net`の既存443番サーバーブロックに、third-place用の新しいlocationブロックを1つ追加する」だけ
-- ただし、**この追加作業（nginx設定ファイルの編集＋`systemctl reload nginx`）に十分な権限（実質的なroot、または少なくともこのファイルへの書き込み＋nginxのreload権限）が湯本さんにあるかは未確認**。Step 0でここを必ず確認すること
-- 権限が無い場合は、サーバー管理者（ドキュメント中に登場する「hase」＝おそらく長谷川先生、または他の管理者）に
-  1箇所のlocationブロック追加を依頼する形になる。**追加する設定の中身自体はこの指示書で用意するので、
-  「このブロックを追加してreloadしてほしい」という依頼を渡せる状態にしておけばよい**
+- **HTTPS自体は既に使える。新たにポートを開けたり証明書を取ったりする必要はない。**
+  やるべきことは「`ai2.haselab.net`の既存443番サーバーブロックに、third-place用の新しいlocationブロックを1つ追加する」だけ
+- **`ai2` では湯本さんが管理者権限を持つため、nginx編集・reload・Docker起動はすべて自分で実施できる。**
+  当初あった「権限が無ければ管理者（hase）に依頼する」という分岐は不要
+- 残る唯一の未確認事項は**`ai2`上のnginx設定ファイルの正確なパスと既存locationの内容**（Step 0で確認）
 
 ---
 
@@ -69,10 +80,10 @@
    │
    ├─ フロントエンド … https://yumoto-kyohei.github.io/third-place/   （GitHub Pages のまま。変更なし）
    │        │
-   │        └─①トークン要求 https://ai1.haselab.net/third-place/api/token
+   │        └─①トークン要求 https://ai2.haselab.net/third-place/api/token
    │                 │
    │                 ▼
-   │        [ai1.haselab.net = ai1.binaural.me]
+   │        [ai2.haselab.net = ai2.binaural.me]
    │           nginx（443/HTTPS。Let's Encrypt証明書は設定済み・変更不要）
    │             └─ location /third-place/api/ → 127.0.0.1:18080 へリバースプロキシ（★今回追加する設定）
    │                   └─ Docker: third-place-server（Node/Express。トークン発行のみ）
@@ -90,39 +101,31 @@
 
 ---
 
-## 3. Step 0：権限確認（**ここが解決しないと Step 2 に進めない**）
+## 3. Step 0：`ai2` 上の nginx 設定の場所を確認する
 
-### 【湯本さんの作業】サーバーにSSHして以下を確認する
+権限の有無はもう論点ではない（`ai2` では湯本さんが管理者）。残っているのは
+**「443のサーバーブロックがどのファイルに書かれているか」を実機で確認する**ことだけ。
+
+### 【湯本さんの作業】`ai2` のホストシェル（sandboxコンテナの外）で確認する
 
 ```bash
-# (a) 自分に許可されているsudoコマンドを正確に確認する（最重要）
-sudo -l
+# (a) 443のサーバーブロックがどのファイルにあるかを探す
+grep -rl "listen 443" /etc/nginx/sites-enabled/ /etc/nginx/sites-available/
 
-# (b) 一般グループ所属を確認（adminやdockerグループに入っているか）
-groups
+# (b) その中身と既存のlocationを確認（ai1では gdrive-oauth-callback というファイル名）
+sudo cat /etc/nginx/sites-available/gdrive-oauth-callback
 
-# (c) dockerコマンドがsudo無しで使えるか
-docker ps
-
-# (d) nginx設定ファイルの現在の中身を確認（読むだけなら誰でも可能なはず）
-cat /etc/nginx/sites-available/gdrive-oauth-callback
-
-# (e) 18080番が空いているか
+# (c) 18080番が空いているか（コンテナ内からの確認では空きだったが、ホスト側でも念のため）
 ss -tln | grep 18080 || echo "18080は空き"
+
+# (d) docker が使えるか
+docker ps
 ```
 
-### 確認すべき論点と、結果に応じた分岐
-
-| 確認事項 | 結果 | 対応 |
-|---|---|---|
-| `sudo -l` に `ALL` や `systemctl`, `nginx`, `vi /etc/nginx/*` 等が含まれる | 十分な権限あり | 湯本さん自身でStep 2のnginx編集・reloadを実施してよい |
-| `sudo -l` が `adm-*` の5本だけ（`ai-sandbox-server`のREADMEにある構成そのまま） | nginx編集の権限なし | **サーバー管理者（長谷川先生、または`ai-sandbox-server`のCHANGELOGに登場する管理者）に、5-2で用意するlocationブロックの追加とnginx reloadを依頼する**。Docker起動（Step 1後半）は`docker`グループに入っていれば自分でできる可能性がある（(c)の結果次第） |
-| `docker ps` がエラーなく実行できる | dockerグループに所属 | Step 1のDocker起動は自分で可能 |
-| `docker ps` が権限エラー | 未所属 | Docker起動も管理者依頼、または`sudo docker ...`が許可されているか要確認 |
-
 ### 【Sonnetの作業】
-この Step 0 の結果（特に nginx 編集権限の有無）が判明するまで、gitリポジトリ内の作業は進めてよいが
-（Step 1・Step 3 はサーバー権限に依存しない）、**サーバー上でのnginx設定変更・reloadを湯本さんに指示するのはStep 0確認後にすること**。
+Step 1（Docker化）と Step 3（フロント側のURL環境変数化）は**サーバー権限に依存しないので先に進めてよい**。
+ただし **Step 2（サーバー上での起動・nginx追記）は、(a)(b) の結果を湯本さんから受け取ってから**、
+実際のファイル名・既存locationに合わせた具体的な手順として提示すること。
 
 ---
 
@@ -150,18 +153,24 @@ ss -tln | grep 18080 || echo "18080は空き"
 - **`dotenv` の読み込みパスに注意**：現在 `../.env`（リポジトリ直下）を見ているが、Dockerでは `server/` だけをコピーする想定なので壊れる。
   `docker compose` の `env_file` で環境変数を渡すなら `dotenv` は無くても動く。
   **ローカル開発（`npm run dev`）でも壊れないよう、`.env`が無ければ黙って無視する形にする**
-- **ヘルスチェック用のエンドポイント `GET /healthz` を追加**（`{ ok: true }` を返すだけ）。
-  死活監視や移行後の疎通確認に使う
+- **ヘルスチェック用のエンドポイント `GET /api/healthz` を追加**（`{ ok: true }` を返すだけ）。
+  死活監視や移行後の疎通確認に使う。
+  **`/healthz` ではなく `/api/healthz` に置くこと**：nginxは `/third-place/api/` → `127.0.0.1:18080/api/` しか
+  プロキシしないので、`/api` の外に置くと外部から疎通確認できない（当初の指示は`/healthz`だったが、
+  §5-3の確認コマンド `.../third-place/api/healthz` と矛盾していたため`/api`配下に統一した）
 - `ALLOWED_ORIGINS` は既に環境変数対応済みなのでコード変更不要
 
 ### 4-4. ローカルでの動作確認
 ```bash
 docker compose up --build -d
-curl -s http://127.0.0.1:18080/healthz
+curl -s http://127.0.0.1:18080/api/healthz
 curl -s "http://127.0.0.1:18080/api/token?identity=test" | head -c 200
 docker compose down
 ```
 - **完了条件**：ローカルのDockerでトークンが発行できること（`{"url":"wss://...","token":"eyJ..."}` が返る）
+- 補足：sandboxコンテナ内には`docker`が無いためSonnetはこの確認を実行できない。
+  代わりに **Nodeで直接起動しての疎通確認は実施済み**（`/api/healthz` → `{"ok":true}`、
+  `/api/token?identity=test` → JWT、identity未指定 → 400）。Docker経由での確認は湯本さんがホスト側で行う
 
 ---
 
@@ -180,14 +189,15 @@ nano .env   # LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET を記入
             # ALLOWED_ORIGINS=https://yumoto-kyohei.github.io も追記
 
 docker compose up --build -d
-curl -s http://127.0.0.1:18080/healthz    # {"ok":true} が返ればOK
+curl -s http://127.0.0.1:18080/api/healthz    # {"ok":true} が返ればOK
 ```
 
 > **秘密情報の扱い**：`.env` は絶対にGitにコミットしない。サーバー上のファイル権限も `chmod 600 .env` にしておく。
 
-### 5-2.【湯本さん、または権限のある管理者の作業】既存nginxにlocationを追加
+### 5-2.【湯本さんの作業】既存nginxにlocationを追加
 
-`/etc/nginx/sites-available/gdrive-oauth-callback` の `server { listen 443 ssl; server_name ai1.haselab.net; ... }`
+Step 0(a)(b) で特定したファイル（`ai1`と同じなら `/etc/nginx/sites-available/gdrive-oauth-callback`）の
+`server { listen 443 ssl; server_name ai2.haselab.net; ... }`
 ブロックの中に、既存の `location /gdrive { ... }` などと並べて以下を追加する。
 **認証は付けない**（`/sandbox/port<N>`と違い、third-placeは一般の学生が使うので誰でもアクセスできる必要がある）。
 
@@ -210,17 +220,17 @@ sudo nginx -t              # 構文チェック
 sudo systemctl reload nginx
 ```
 
-- Step 0で編集権限が無いと分かった場合は、**この`location`ブロックをそのまま管理者に渡して**
-  「`/etc/nginx/sites-available/gdrive-oauth-callback`の443番サーバーブロックにこれを追加して`nginx -t && systemctl reload nginx`してほしい」
-  と依頼する
-- `ai-sandbox-server`リポジトリの運用ルールに従い、変更後は**そのリポジトリ側の`etc/nginx/sites-available/gdrive-oauth-callback`にも今回の追記を反映**し、
-  `doc/CHANGELOG.md`に一言（例：「third-placeのAPIプロキシとして`/third-place/api/`locationを追加」）を追記しておくこと（管理者と相談の上）
+- `ai2` では湯本さん自身が編集・reloadできるので、管理者への依頼は不要
+- サーバー運用の慣習に従い、変更後は `ai2` 上の `/usr/local/share/doc/CHANGELOG.md` に一言
+  （例：「third-placeのAPIプロキシとして`/third-place/api/`locationを追加」）を追記しておくこと。
+  `/usr/local/share/doc/` は`ai1`からのコピーなので、**`ai2`固有の変更である旨を明記**し、
+  `ai1`の記録と混同されないようにする
 
 ### 5-3. 疎通確認
 ```bash
-# 外部から（自分のPCで）。ホスト名は必ず ai1.haselab.net を使うこと（ai1.binaural.meではTLSが通らない）
-curl -s https://ai1.haselab.net/third-place/api/healthz
-curl -s "https://ai1.haselab.net/third-place/api/token?identity=test" | head -c 200
+# 外部から（自分のPCで）。ホスト名は必ず ai2.haselab.net を使うこと（ai2.binaural.meでは証明書のSAN不一致でTLSが通らない）
+curl -s https://ai2.haselab.net/third-place/api/healthz
+curl -s "https://ai2.haselab.net/third-place/api/token?identity=test" | head -c 200
 ```
 - **完了条件**：外部からHTTPSでトークンが取得できること
 
@@ -237,21 +247,24 @@ const TOKEN_SERVER_URL = import.meta.env.PROD
 
 これを**環境変数（Viteの `import.meta.env.VITE_*`）で差し替えられるようにする**（SPEC §7.4「接続先URL・鍵はすべて環境変数化」）。
 
-### 6-1. 実装方針
-- `VITE_TOKEN_SERVER_URL` を参照し、未設定なら従来通りのフォールバック（開発時は `http://localhost:3001`）
+### 6-1. 実装方針（実装済み）
+- `VITE_TOKEN_SERVER_URL` を参照し、未設定なら開発時のフォールバック `http://localhost:3001/api`
+- URLの持ち方は「ベースURL（`/api`まで含む）＋`/token`」に統一し、パスの二重付与（`/api/api/token`）を回避
 - `client/.env.production` に本番の値を書く（**これは公開URLであり秘密情報ではないのでコミットしてよい**）
-  ```
-  VITE_TOKEN_SERVER_URL=https://ai1.haselab.net/third-place/api
-  ```
-- **注意**：現在のコードは `${TOKEN_SERVER_URL}/api/token` と組み立てている。上記URLは既に `/api` を含むので、
-  **パスの二重付与（`/api/api/token`）にならないよう、組み立て方を整理すること**。
-  URLの持ち方を「ベースURL（`/api`まで含む）＋`/token`」に統一するのが分かりやすい
-- `.env.example` にも項目を追記して、他の人が分かるようにする
+- `.env.example` にも、フロント側の設定は `client/.env.production` にある旨を追記済み
+
+**⚠️ `.env.production` は当面 Render のURLのままにしてある**（`https://third-place.onrender.com/api`）。
+理由は 6-2 の通りで、**`ai2` の疎通確認（Step 2）が取れる前に `ai2` を指した状態でデプロイすると本番が壊れる**ため。
+環境変数化のリファクタ自体は挙動を変えないので、この状態で安全にコミット・デプロイできる。
+Step 2 完了後に次の1行へ差し替えるのがカットオーバー作業になる：
+```
+VITE_TOKEN_SERVER_URL=https://ai2.haselab.net/third-place/api
+```
 
 ### 6-2. 切り替えの安全な進め方（重要）
 **いきなりRenderを止めないこと。** 以下の順で行う：
-1. 研究室サーバー側で疎通確認が取れる（Step 2完了）
-2. フロントを研究室サーバー向けに切り替えてデプロイ
+1. 研究室サーバー（`ai2`）側で疎通確認が取れる（Step 2完了）
+2. `client/.env.production` を `ai2` のURLに差し替えてデプロイ
 3. 本番URL（`https://yumoto-kyohei.github.io/third-place/`）で実際に入室・会話できることを確認
 4. **数日〜1週間ほど問題がないことを確認してから**、Renderのサービスを停止/削除する
    （Render側は残しておいても無料枠なので急いで消す必要はない）
@@ -292,5 +305,7 @@ SPEC §7.4 で「将来（研究室サーバー移行後）」として計画さ
 SFU（LiveKit）のセルフホストとDB導入は据え置き、段階的にリスクを分けて進める。
 目的は「Renderのスリープ解消」と「将来のログ基盤（F10）を自分たちの管理下に置く準備」。
 当初は「443番ポートが閉じている」という調査結果に基づき証明書取得やFW開放が必要と考えていたが、
-`ai-sandbox-server`リポジトリの確認により、**正しいホスト名（`ai1.haselab.net`）を使えば443は既に利用可能**と判明し、
+**正しいホスト名（`ai2.haselab.net`）を使えば443は既に利用可能**（証明書も設定済み）と判明し、
 作業内容を「既存nginxへの1箇所のlocation追加」に縮小できた。
+さらに移行先が `ai2`（third-place開発用にコピーした、湯本さんが管理者権限を持つサーバー）と確定したことで、
+当初懸念していた「管理者への作業依頼」も不要になっている。
