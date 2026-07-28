@@ -3,9 +3,8 @@ import { LiveKitRoom } from '@livekit/components-react';
 import '@livekit/components-styles';
 import CallScreen from './CallScreen';
 
-const TOKEN_SERVER_URL = import.meta.env.PROD
-  ? 'https://third-place.onrender.com'
-  : 'http://localhost:3001';
+// トークンAPIのベースURL（末尾の /api まで含む）。本番値は client/.env.production を参照。
+const TOKEN_API_BASE = import.meta.env.VITE_TOKEN_SERVER_URL || 'http://localhost:3001/api';
 
 function JoinForm({ onJoin, connecting, error }) {
   const [name, setName] = useState('');
@@ -63,7 +62,7 @@ function App() {
     setConnecting(true);
     setError(false);
     try {
-      const res = await fetch(`${TOKEN_SERVER_URL}/api/token?identity=${encodeURIComponent(identity)}`);
+      const res = await fetch(`${TOKEN_API_BASE}/token?identity=${encodeURIComponent(identity)}`);
       if (!res.ok) throw new Error(`token request failed: ${res.status}`);
       const data = await res.json();
       setConnectionInfo(data);
