@@ -3,6 +3,10 @@
 この文書は実装担当（Sonnet）への指示書です。`README.md` と `SPEC.md` を先に読んでから着手してください。
 判断に迷ったら `SPEC.md` の「2. 設計原則」に立ち返ること。
 
+> **進捗（2026-07-28時点）**：**Step 0・Step 1 は完了済み**（2.5D化は本番稼働中）。
+> **未着手は Step 2 以降＝ボード機能そのもの**（共有ボード・テキストボードを空間内に立てる）。
+> この文書は「2.5D化＋ボード機能」の両方を扱っているが、前半は既に済んでいる点に注意。
+
 ---
 
 ## 0. ゴール（何を作るか）
@@ -61,14 +65,22 @@
 
 `SPEC.md`同様「動くものを確認してから次へ」。各ステップ完了時に `README.md`・`SPEC.md`（Phase 1の該当や新規節）を更新し、`git commit -m "説明"` → push → GitHub Actions成功 → 本番URL確認、まで行う。
 
-### Step 0：react-three-fiber を Vite開発サーバーで動くようにする（前提・ブロッカー）
+### Step 0：react-three-fiber を Vite開発サーバーで動くようにする（前提・ブロッカー） ✅完了
+
+> コミット `5df20f8` で解消済み。`vite.config.js` の `optimizeDeps.entries: ['index.html', 'mockup.html']`
+> で両エントリを初回に一括スキャンさせることで直った（`resolve.dedupe` だけでは直らなかった）。
+> 以下は当時の検討メモとして残す。
 現状 `mockup.html` は本番ビルドでは動くが、`npm run dev`（Vite開発サーバー）では r3f 由来の
 `Invalid hook call`（Reactの重複インスタンス）が出る。**r3fを本番アプリ本体に組み込むと、開発サーバーでアプリ全体がこのエラーになる**ため、先に解決する。
 - 既に `vite.config.js` に `resolve.dedupe: ['react','react-dom']` は入れてある（だけでは直らなかった）。
 - 候補：`optimizeDeps.include` に `react`, `react-dom`, `react-dom/client`, `react/jsx-runtime`, `react/jsx-dev-runtime`, `@react-three/fiber`, `@react-three/drei`, `three` をまとめて入れて単一インスタンスに強制する／`npm ls react` で重複がないか確認／`node_modules/.vite` を消して再起動。
 - **完了条件**：`npm run dev` でアプリ（および mockup）を開いて `Invalid hook call` が出ず、3Dが表示される。どうしても開発サーバーで解決できない場合は、その旨を記録し「検証は `npm run build && npx vite preview` で行う」運用に切り替えてよい（ただしまず解決を試みること）。
 
-### Step 1：テント内表示を 2.5D(r3f) に置き換える（既存機能は全維持）
+### Step 1：テント内表示を 2.5D(r3f) に置き換える（既存機能は全維持） ✅完了
+
+> コミット `e4219da` で実施し、`c04fb0e`（自分の移動をref+useFrameで駆動し、Reactのstate更新から切り離してガクつきを解消）と
+> `42225fc`（アバターの枠を廃し人型/非人間の区別を足元マーカーへ移動、タップ地点への瞬間移動を定速歩行に変更）で仕上げた。
+> 実装の詳細は README のコンポーネント構成（`TentView.jsx`）を参照。**残りは Step 2 以降のボード機能。**
 `client/src/mockup/Mockup.jsx` を土台に、本番の `TentView.jsx` を「DOM 2Dフロア」→「r3fの2.5Dシーン」へ置き換える。
 - **位置・アバター種別の正は引き続き `TentState.jsx`**（ここは触らない。ソース・オブ・トゥルース）。r3fシーンは`useTentState()`から`myPos`/`others`/`avatarType`/`hopping`/`localIdentity`を読み、参加者をビルボードのアバターとして配置するだけにする。
 - 移動：既存のWASD＋ドラッグに加え、mockupの**タップ/ドラッグで移動先指定**（床のraycast）も取り込む。`updateMyPos`を呼ぶ形にして同期・ホップ・空間オーディオがそのまま効くようにする。

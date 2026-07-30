@@ -2,7 +2,19 @@
 
 スマートフォンのブラウザで動く、複数人の音声通話＋テキストチャットアプリのプロトタイプ。
 
-今後の開発目標である『通りとテント』アプリの全体仕様は [SPEC.md](SPEC.md) を参照。
+## ドキュメントの読み分け
+
+| ファイル | 何が書いてあるか |
+|---|---|
+| **README.md**（本書） | **今どうなっているか** — 実装の構成、環境変数、ローカル開発、本番運用手順、トラブルシューティング |
+| [SPEC.md](SPEC.md) | **何を作るか・なぜ** — 『通りとテント』アプリの全体仕様、設計原則、機能仕様、開発フェーズ計画 |
+| `TASK-*.md` | **今着手している作業の実装指示書**。完了したら内容をREADME/SPECへ畳んで削除する（記録はgit履歴に残る）。<br>したがって `TASK-*.md` が存在する＝進行中の作業がある、と読める |
+
+現在の `TASK-*.md`：[TASK-2.5D-boards.md](TASK-2.5D-boards.md) — 2.5D化（Step 0・1）は**完了して本番稼働中**、
+空間内に画面共有・掲示板の「ボード」を立てる機能（Step 2以降）が**未着手**
+
+> 事実の重複を避けるため、**現状の一次情報はREADMEに置く**。SPEC・TASKから現状を再掲する場合は、
+> 詳細をREADMEへリンクするだけにとどめる（過去に同じ事実が3ファイルに散り、食い違いが発生した）。
 
 ## システム構成
 
@@ -82,7 +94,7 @@ WebRTCは本来1対1通話を前提とした技術で、複数人が同時に通
 **バックエンドの公開構成**：Nodeプロセスは外部に直接公開せず `127.0.0.1:18080` だけで待ち受け、
 サーバー上で既に稼働している nginx（443/HTTPS、Let's Encrypt証明書）に `location /third-place/api/` を
 追加してリバースプロキシしている。`restart: unless-stopped` によりサーバー再起動時も自動復帰する。
-移行の全経緯・落とし穴・運用手順は [TASK-server-migration.md](TASK-server-migration.md) を参照。
+運用手順とトラブルシューティングは「本番バックエンドの運用」の節を参照。
 
 > **ホスト名の注意**：`ai2.binaural.me` も同一ホストだが、TLS証明書のSANが `ai2.haselab.net` のみのため
 > `ai2.binaural.me` ではHTTPSが通らない。**必ず `ai2.haselab.net` を使うこと。**
@@ -194,8 +206,47 @@ curl -s "https://ai2.haselab.net/third-place/api/token?identity=t"  # url と to
 ```
 
 nginx設定（`location /third-place/api/`）は `/etc/nginx/sites-available/gdrive-oauth-callback` の
-443番サーバーブロック内にある。このファイルはgdrive・aigw・sandboxプロキシも定義しているため、
-編集したら**必ず `sudo nginx -t` で構文チェックしてから** `sudo systemctl reload nginx` すること。
+443番サーバーブロック内にある（ファイル名に反して、`ai2.haselab.net`宛の443番サーバーブロック全体が
+ここに書かれている。gdrive専用ファイルではない）。このファイルはgdrive・aigw・sandboxプロキシも
+定義しているため、編集したら**必ず `sudo nginx -t` で構文チェックしてから**
+`sudo systemctl reload nginx` すること。
+
+### トラブルシューティング
+
+**入室はできるが他の参加者が誰も見えない**
+
+ブラウザのコンソールに `no livekit url provided` が出ていたら、`LIVEKIT_URL` がバックエンドの
+プロセスに渡っていない。`/api/token` のレスポンスから `url` が欠落し、フロントが接続先を
+知れないため「自分しかいない部屋」に見える。
+
+```bash
+docker compose exec third-place-server env | grep LIVEKIT   # 変数名を確認
+```
+
+実際に一度、`.env` の1行目が `LIVEKIT_URL=` ではなく **`QLIVEKIT_URL=`**（先頭に`Q`が混入）に
+なっていてこの症状が出た。**変数名の打ち間違い**を最初に疑うこと。
+`.env`を読むだけでは気付きにくいので、上記のようにコンテナのプロセスが見ている変数名を確認する。
+
+なおこのとき、疎通確認を `curl ... | head -c 200` と切り詰めていたために欠落を見落としていた。
+**トークンAPIの確認では出力を切り詰めず、`url`と`token`の両方があることを目視すること。**
+
+**`.env` を直したのに反映されない**
+
+`docker compose restart` では環境変数は再読み込みされない（コンテナ作成時に注入されるため）。
+`docker compose up -d --force-recreate` を使う。
+
+**502 が返る**
+
+バックエンドのコンテナが落ちている。`docker compose ps` と `docker compose logs` を確認。
+
+**`.env` の中身を確認したい（値は見せずに）**
+
+```bash
+grep -c "your_api\|your-project" .env                     # 0 ならプレースホルダーは残っていない
+awk -F= '/LIVEKIT_API_SECRET/ {print length($2)}' .env     # 0 より大きければ値が入っている
+```
+
+`LIVEKIT_API_SECRET` の値そのものをチャットやissueに貼らないこと。
 
 ## 2.5D 検証モックアップ（採用済み・参考として残置）
 
@@ -209,12 +260,15 @@ nginx設定（`location /third-place/api/`）は `/etc/nginx/sites-available/gdr
 ## 現状の制約・今後の予定
 
 - ルームは `lobby` 1つのみ固定（複数ルーム・部屋作成機能は未実装）
-- 音声通話（空間オーディオ付き）＋画面共有＋画面への描き込み＋テキストチャット＋テント内2.5Dビュー（アバター移動・石/草/人の切替）まで実装済み。テーブル分割・複数テント・通り画面は未実装（SPEC Phase 2〜で今後追加）。ボード機能（2.5D空間内に画面共有/掲示板を立てる）は [TASK-2.5D-boards.md](TASK-2.5D-boards.md) に計画あり・未着手
+- 音声通話（空間オーディオ付き）＋画面共有＋画面への描き込み＋テキストチャット＋テント内2.5Dビュー（アバター移動・石/草/人の切替）まで実装済み。テーブル分割・複数テント・通り画面は未実装（SPEC Phase 2〜で今後追加）。ボード機能（2.5D空間内に画面共有/掲示板を立てる）は [TASK-2.5D-boards.md](TASK-2.5D-boards.md) のStep 2以降に計画あり・未着手
 - 画面共有は同時に1人のみ想定（複数人が同時共有した場合の表示制御は未実装、`ScreenShareStage`は最初の1トラックのみ表示）
 - 描き込みの色・太さは固定（ペンは赤、丸は橙、変更UIなし）
 - チャットは日本語UI（`ChatPanel.jsx`）。テント（ルーム）単位。テーブル単位チャットは未対応
 - チャットのメッセージ履歴は「今そのテントに接続している間」だけ保持される（`ChatState`がその場のReact state。サーバー側には保存しない）。途中入室者やリロード後は、参加より前のメッセージは見えない。サーバー側でのログ保存はSPEC F10（ログ収集基盤）のスコープ
 - 認証・ユーザー管理なし（表示名を自己申告するのみ）。CORSはオリジンを限定しているが、
   トークン発行APIそのものは認証なしで公開されている（URLを知っていれば誰でもトークンを取得でき、`lobby`に入室できる）
-- バックエンド移行の積み残し：Renderのサービス停止（切り戻し用に残置中）、
-  ai2の`/usr/local/share/doc/CHANGELOG.md`へのnginx変更の記録。詳細は [TASK-server-migration.md](TASK-server-migration.md)
+- バックエンド移行（2026-07-28）の積み残し：
+  - Renderのサービス停止（切り戻し用に残置中。数日〜1週間問題なければ停止する）
+  - ai2の`/usr/local/share/doc/CHANGELOG.md`へのnginx変更の記録（サーバー運用ルールで求められているもの）
+  - スリープ解消の実測比較（原理的には解消済みだが計測していない）
+  - 移行後の画面共有・描き込み・2.5D移動の個別動作確認（入室と相互表示は確認済み）

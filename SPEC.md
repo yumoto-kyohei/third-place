@@ -264,8 +264,8 @@
 **バックエンドは研究室サーバーへ移行済み**（Render無料プランのスリープ問題を解消）。
 `ai2.haselab.net` は third-place 開発用に立てたサーバーで、既存nginx（443/HTTPS）に
 `location /third-place/api/` を追加してリバースプロキシしている。
-構成・運用手順は [README.md](README.md)、移行の経緯と落とし穴は
-[TASK-server-migration.md](TASK-server-migration.md) を参照。
+構成・運用手順・トラブルシューティングは [README.md](README.md) を参照
+（移行作業自体の詳細な経緯はコミット `9668108`〜`b732f77` の履歴に残してある）。
 
 **SFUのセルフホストとDB導入は据え置き**。段階的にリスクを分けるため、今回はバックエンドのみ移行した。
 
