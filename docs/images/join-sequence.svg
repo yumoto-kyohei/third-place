@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 620" width="960" height="620" role="img" aria-label="入室時のシーケンス図">
+  <style>
+    .bg    { fill: #faf8f3; }
+    .head  { fill: #ffffff; stroke: #8b7355; stroke-width: 2; }
+    .life  { stroke: #b3a892; stroke-width: 1.5; stroke-dasharray: 5 5; }
+    .act   { fill: #f4efe4; stroke: #8b7355; stroke-width: 1.5; }
+    .t     { font-family: "Hiragino Sans","Noto Sans JP","Yu Gothic",-apple-system,"Segoe UI",sans-serif; fill: #2c2519; }
+    .title { font-size: 17px; font-weight: 700; }
+    .name  { font-size: 14px; font-weight: 700; }
+    .small { font-size: 11.5px; fill: #6b5f4d; }
+    .msg   { font-size: 13px; }
+    .arrow { stroke: #4a7c59; stroke-width: 2; fill: none; }
+    .ret   { stroke: #a89880; stroke-width: 2; fill: none; stroke-dasharray: 6 4; }
+    .media { stroke: #2f6690; stroke-width: 2.6; fill: none; }
+    .note  { fill: #fff8e8; stroke: #c9a227; stroke-width: 1.5; }
+  </style>
+  <defs>
+    <marker id="g2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#4a7c59"/>
+    </marker>
+    <marker id="m2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#a89880"/>
+    </marker>
+    <marker id="b2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2f6690"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" width="960" height="620"/>
+  <text class="t title" x="40" y="40">入室のしくみ（トークン発行から接続まで）</text>
+
+  <!-- actors -->
+  <rect class="head" x="60"  y="64" width="180" height="52" rx="8"/>
+  <text class="t name"  x="150" y="88"  text-anchor="middle">ブラウザ</text>
+  <text class="t small" x="150" y="106" text-anchor="middle">App.jsx</text>
+
+  <rect class="head" x="390" y="64" width="180" height="52" rx="8"/>
+  <text class="t name"  x="480" y="88"  text-anchor="middle">トークン発行API</text>
+  <text class="t small" x="480" y="106" text-anchor="middle">ai2.haselab.net</text>
+
+  <rect class="head" x="720" y="64" width="180" height="52" rx="8"/>
+  <text class="t name"  x="810" y="88"  text-anchor="middle">LiveKit Cloud</text>
+  <text class="t small" x="810" y="106" text-anchor="middle">SFU</text>
+
+  <line class="life" x1="150" y1="116" x2="150" y2="560"/>
+  <line class="life" x1="480" y1="116" x2="480" y2="560"/>
+  <line class="life" x1="810" y1="116" x2="810" y2="560"/>
+
+  <!-- 1 -->
+  <path class="arrow" d="M150,168 L473,168" marker-end="url(#g2)"/>
+  <text class="t msg" x="164" y="160">① GET /third-place/api/token?identity=表示名</text>
+
+  <!-- server activation -->
+  <rect class="act" x="468" y="178" width="24" height="70" rx="4"/>
+  <text class="t small" x="504" y="200">LIVEKIT_API_SECRET で</text>
+  <text class="t small" x="504" y="217">JWT に署名する</text>
+  <text class="t small" x="504" y="234">（Secret は外に出さない）</text>
+
+  <!-- 2 -->
+  <path class="ret" d="M473,268 L157,268" marker-end="url(#m2)"/>
+  <text class="t msg" x="164" y="260">② { url, token } を返す</text>
+  <text class="t small" x="164" y="288">url = wss://….livekit.cloud / token = 入室用JWT（room: lobby）</text>
+
+  <!-- 3 -->
+  <path class="media" d="M150,340 L803,340" marker-end="url(#b2)"/>
+  <text class="t msg" x="164" y="332">③ 受け取った url へ token を持って直接接続（WebSocket / WebRTC）</text>
+
+  <!-- 4 -->
+  <path class="media" d="M803,392 L157,392" marker-end="url(#b2)"/>
+  <text class="t msg" x="164" y="384">④ 他の参加者の音声トラック・データチャネルが流れ込む</text>
+
+  <text class="t small" x="164" y="418">以降、音声も位置同期もチャットも LiveKit 経由。トークン発行APIはもう関与しない</text>
+
+  <!-- note -->
+  <rect class="note" x="60" y="446" width="840" height="114" rx="10"/>
+  <text class="t name"  x="82" y="474">実装上の注意</text>
+  <text class="t msg"   x="82" y="500">・接続完了（useConnectionState が Connected）まで publishData を呼んではいけない。接続前に送ると</text>
+  <text class="t msg"   x="82" y="522">　LiveKit 内部の送信路が失敗状態でキャッシュされ、以降チャットを含む全データ送信が失敗し続ける</text>
+  <text class="t msg"   x="82" y="546">・②のレスポンスに url が欠けていると「入室はできるが誰も見えない」状態になる（LIVEKIT_URL の設定漏れ）</text>
+</svg>

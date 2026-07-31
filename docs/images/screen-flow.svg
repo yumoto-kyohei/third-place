@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 630" width="960" height="630" role="img" aria-label="third-place の画面遷移図">
+  <style>
+    .bg    { fill: #faf8f3; }
+    .card  { fill: #ffffff; stroke: #8b7355; stroke-width: 2; }
+    .panel { fill: #f4efe4; stroke: #8b7355; stroke-width: 2; }
+    .t     { font-family: "Hiragino Sans","Noto Sans JP","Yu Gothic",-apple-system,"Segoe UI",sans-serif; fill: #2c2519; }
+    .title { font-size: 17px; font-weight: 700; }
+    .body  { font-size: 13px; }
+    .small { font-size: 12px; fill: #6b5f4d; }
+    .lbl   { font-size: 12px; fill: #4a7c59; font-weight: 700; }
+    .lblx  { font-size: 12px; fill: #c0642f; font-weight: 700; }
+    .arrow { stroke: #4a7c59; stroke-width: 2.2; fill: none; }
+    .arrowx{ stroke: #c0642f; stroke-width: 2; fill: none; stroke-dasharray: 5 4; }
+    .tie   { stroke: #a89880; stroke-width: 2; fill: none; stroke-dasharray: 4 4; }
+    .h     { font-size: 14px; font-weight: 700; fill: #6b5f4d; }
+  </style>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#4a7c59"/>
+    </marker>
+    <marker id="ax" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#c0642f"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" width="960" height="630"/>
+  <text class="t title" x="40" y="42">画面遷移</text>
+
+  <!-- top row -->
+  <rect class="card" x="40"  y="70" width="230" height="104" rx="10"/>
+  <text class="t title" x="60" y="102">入室フォーム</text>
+  <text class="t body"  x="60" y="126">表示名を入力して「入室する」</text>
+  <text class="t small" x="60" y="148">App.jsx / JoinForm</text>
+
+  <rect class="card" x="365" y="70" width="230" height="104" rx="10"/>
+  <text class="t title" x="385" y="102">接続中…</text>
+  <text class="t body"  x="385" y="126">トークン取得 → LiveKit接続</text>
+  <text class="t small" x="385" y="148">ボタンは押せない状態になる</text>
+
+  <rect class="card" x="690" y="70" width="230" height="104" rx="10"/>
+  <text class="t title" x="710" y="102">テント内画面</text>
+  <text class="t body"  x="710" y="126">入室完了。下の構成を参照</text>
+  <text class="t small" x="710" y="148">CallScreen.jsx</text>
+
+  <path class="arrow" d="M270,112 L358,112" marker-end="url(#a)"/>
+  <text class="t lbl" x="279" y="103">入室する</text>
+
+  <path class="arrow" d="M595,112 L683,112" marker-end="url(#a)"/>
+  <text class="t lbl" x="614" y="103">成功</text>
+
+  <!-- failure loop -->
+  <path class="arrowx" d="M480,174 L480,205 L155,205 L155,181" marker-end="url(#ax)"/>
+  <text class="t lblx" x="250" y="223">失敗したらフォームに戻り、エラーを表示</text>
+
+  <!-- exit loop: routed outside the panel so it is not hidden behind it -->
+  <path class="arrowx" d="M860,174 L940,174 L940,578 L20,578 L20,122 L33,122" marker-end="url(#ax)"/>
+  <text class="t lblx" x="600" y="598">「退出する」でフォームに戻る</text>
+
+  <!-- tie to panel -->
+  <path class="tie" d="M690,140 L640,140 L640,262"/>
+
+  <!-- panel: inside the tent -->
+  <rect class="panel" x="40" y="262" width="880" height="278" rx="12"/>
+  <text class="t title" x="62" y="292">テント内画面の構成</text>
+  <text class="t small" x="248" y="292">— ツールバーは常に表示。下段の2つは状況に応じて重なる</text>
+
+  <!-- toolbar -->
+  <rect x="62" y="308" width="836" height="58" rx="8" fill="#ffffff" stroke="#b3a892" stroke-width="1.5"/>
+  <text class="t h"    x="78" y="330">ツールバー（常時）</text>
+  <text class="t body" x="78" y="352">🪨 石 / 🌿 草 / 🧍 人　　🎤 マイク（人のときだけ有効）　　🖥 画面共有　　💬 チャット　　退出する</text>
+
+  <!-- always-on view -->
+  <rect x="62" y="382" width="404" height="138" rx="8" fill="#ffffff" stroke="#b3a892" stroke-width="1.5"/>
+  <text class="t h"    x="78" y="406">テント内 2.5Dビュー（常時）</text>
+  <text class="t body" x="78" y="430">自分と他の参加者のアバターを表示</text>
+  <text class="t body" x="78" y="452">ドラッグ／タップ／WASD で移動</text>
+  <text class="t body" x="78" y="474">近い人ほど大きく聞こえる（空間オーディオ）</text>
+  <text class="t small" x="78" y="500">TentView.jsx / SpatialAudio.jsx</text>
+
+  <!-- overlays -->
+  <rect x="494" y="382" width="404" height="64" rx="8" fill="#ffffff" stroke="#b3a892" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text class="t h"    x="510" y="406">チャットパネル（💬 で開閉）</text>
+  <text class="t body" x="510" y="428">閉じても履歴は保持され、受信も続く</text>
+
+  <rect x="494" y="456" width="404" height="64" rx="8" fill="#ffffff" stroke="#b3a892" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text class="t h"    x="510" y="480">画面共有ステージ（誰かが共有中のみ）</text>
+  <text class="t body" x="510" y="502">映像の上にペン／丸／消しゴムで描き込める</text>
+</svg>

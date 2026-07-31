@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 630" width="960" height="630" role="img" aria-label="third-place のシステム構成図">
+  <style>
+    .bg    { fill: #faf8f3; }
+    .card  { fill: #ffffff; stroke: #8b7355; stroke-width: 2; }
+    .zone  { fill: #f4efe4; stroke: #8b7355; stroke-width: 2; stroke-dasharray: 6 4; }
+    .inner { fill: #ffffff; stroke: #b3a892; stroke-width: 1.5; }
+    .t     { font-family: "Hiragino Sans","Noto Sans JP","Yu Gothic",-apple-system,"Segoe UI",sans-serif; fill: #2c2519; }
+    .title { font-size: 16px; font-weight: 700; }
+    .zt    { font-size: 13px; font-weight: 700; fill: #6b5f4d; }
+    .body  { font-size: 13px; }
+    .small { font-size: 11.5px; fill: #6b5f4d; }
+    .lbl   { font-size: 12px; font-weight: 700; fill: #4a7c59; }
+    .lbl2  { font-size: 12px; font-weight: 700; fill: #2f6690; }
+    .arrow { stroke: #4a7c59; stroke-width: 2.2; fill: none; }
+    .media { stroke: #2f6690; stroke-width: 2.8; fill: none; }
+  </style>
+  <defs>
+    <marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#4a7c59"/>
+    </marker>
+    <marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2f6690"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" width="960" height="630"/>
+  <text class="t title" x="40" y="40" font-size="17">システム構成</text>
+  <text class="t small" x="175" y="40">緑＝トークン取得（HTTPS）／青＝音声・データ（WebRTC・WebSocket）</text>
+
+  <!-- client -->
+  <rect class="card" x="40" y="72" width="230" height="150" rx="10"/>
+  <text class="t title" x="60" y="102">ブラウザ</text>
+  <text class="t body"  x="60" y="126">スマホ／PC</text>
+  <text class="t body"  x="60" y="148">React + Vite</text>
+  <text class="t small" x="60" y="172">GitHub Pages から配信</text>
+  <text class="t small" x="60" y="192">yumoto-kyohei.github.io</text>
+  <text class="t small" x="60" y="210">/third-place/</text>
+
+  <!-- lab server zone -->
+  <rect class="zone" x="360" y="72" width="290" height="230" rx="12"/>
+  <text class="t zt" x="380" y="98">研究室サーバー ai2.haselab.net</text>
+
+  <rect class="inner" x="380" y="112" width="250" height="74" rx="8"/>
+  <text class="t title" x="398" y="138" font-size="15">nginx（443 / HTTPS）</text>
+  <text class="t small" x="398" y="160">Let's Encrypt 証明書</text>
+  <text class="t small" x="398" y="177">location /third-place/api/</text>
+
+  <rect class="inner" x="380" y="204" width="250" height="80" rx="8"/>
+  <text class="t title" x="398" y="230" font-size="15">Docker: トークン発行API</text>
+  <text class="t small" x="398" y="252">Node / Express</text>
+  <text class="t small" x="398" y="270">127.0.0.1:18080（外部非公開）</text>
+
+  <path class="arrow" d="M505,186 L505,199" marker-end="url(#g)"/>
+
+  <!-- livekit -->
+  <rect class="card" x="720" y="72" width="200" height="150" rx="10"/>
+  <text class="t title" x="740" y="102">LiveKit Cloud</text>
+  <text class="t body"  x="740" y="126">SFU（音声リレー）</text>
+  <text class="t small" x="740" y="150">東京リージョン</text>
+  <text class="t small" x="740" y="170">ルーム = テント</text>
+  <text class="t small" x="740" y="190">（現状 lobby ひとつ）</text>
+
+  <!-- arrows -->
+  <path class="arrow" d="M270,120 L353,120" marker-end="url(#g)"/>
+  <text class="t lbl" x="272" y="111">① トークン要求</text>
+
+  <path class="arrow" d="M353,152 L270,152" marker-end="url(#g)"/>
+  <text class="t lbl" x="272" y="172">② url + token</text>
+
+  <!-- routed below the server zone (which ends at y=302) so the lines do not cross it -->
+  <path class="media" d="M155,222 L155,364 L820,364 L820,229" marker-end="url(#b)"/>
+  <path class="media" d="M840,229 L840,326 L175,326 L175,229" marker-end="url(#b)"/>
+  <text class="t lbl2" x="330" y="356">③ トークンで接続 → 音声・データチャネル</text>
+  <text class="t lbl2" x="330" y="318">③' 他の参加者の音声・位置・チャット・描き込み</text>
+
+  <!-- note -->
+  <rect x="40" y="410" width="880" height="176" rx="10" fill="#ffffff" stroke="#b3a892" stroke-width="1.5"/>
+  <text class="t title" x="62" y="438" font-size="15">この構成の要点</text>
+  <text class="t body"  x="62" y="466">・LiveKit API Secret はバックエンドだけが持ち、ブラウザには渡さない。ブラウザが受け取るのは短命の入室トークンのみ</text>
+  <text class="t body"  x="62" y="492">・音声はすべて LiveKit Cloud が中継する。研究室サーバーは音声データに一切関与しない（トークンを発行するだけ）</text>
+  <text class="t body"  x="62" y="518">・Node プロセスは 127.0.0.1 のみで待ち受け、外部からは nginx 経由でしか到達できない</text>
+  <text class="t body"  x="62" y="544">・位置・チャット・描き込みは LiveKit のデータチャネルで直接やりとりし、サーバーには保存されない（その場限り）</text>
+  <text class="t body"  x="62" y="570">・SFU を使う理由：全員が1本ずつ接続するだけで済み、参加者数の2乗で接続が増える問題を避けられる</text>
+</svg>

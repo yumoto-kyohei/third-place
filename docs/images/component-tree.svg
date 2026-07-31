@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 700" width="960" height="700" role="img" aria-label="Reactコンポーネント構成と状態の流れ">
+  <style>
+    .bg    { fill: #faf8f3; }
+    .card  { fill: #ffffff; stroke: #8b7355; stroke-width: 2; }
+    .store { fill: #eef4ee; stroke: #4a7c59; stroke-width: 2; }
+    .view  { fill: #ffffff; stroke: #b3a892; stroke-width: 1.5; }
+    .t     { font-family: "Hiragino Sans","Noto Sans JP","Yu Gothic",-apple-system,"Segoe UI",sans-serif; fill: #2c2519; }
+    .title { font-size: 17px; font-weight: 700; }
+    .name  { font-size: 14px; font-weight: 700; }
+    .body  { font-size: 12.5px; }
+    .small { font-size: 11.5px; fill: #6b5f4d; }
+    .tree  { stroke: #b3a892; stroke-width: 1.8; fill: none; }
+    .flow  { stroke: #4a7c59; stroke-width: 2; fill: none; }
+    .lbl   { font-size: 11.5px; font-weight: 700; fill: #4a7c59; }
+    .dc    { font-size: 11.5px; font-weight: 700; fill: #2f6690; }
+  </style>
+  <defs>
+    <marker id="g3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#4a7c59"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" width="960" height="700"/>
+  <text class="t title" x="40" y="40">コンポーネント構成と状態の持ち主</text>
+  <text class="t small" x="380" y="40">緑の枠＝状態を持つ共有ストア（React Context）。白い枠＝見た目だけを担当</text>
+
+  <!-- App -->
+  <rect class="card" x="40" y="66" width="220" height="66" rx="8"/>
+  <text class="t name"  x="58" y="90">App.jsx</text>
+  <text class="t small" x="58" y="110">入室フォーム・トークン取得</text>
+  <text class="t small" x="58" y="126">LiveKitRoom への接続</text>
+
+  <!-- CallScreen -->
+  <rect class="card" x="40" y="158" width="220" height="66" rx="8"/>
+  <text class="t name"  x="58" y="182">CallScreen.jsx</text>
+  <text class="t small" x="58" y="202">ツールバー・アバター種別</text>
+  <text class="t small" x="58" y="218">非人間なら強制ミュート</text>
+
+  <path class="tree" d="M150,132 L150,158"/>
+
+  <!-- stores -->
+  <rect class="store" x="330" y="150" width="250" height="112" rx="8"/>
+  <text class="t name"  x="350" y="176">TentState.jsx</text>
+  <text class="t small" x="350" y="196">位置（0〜1正規化）・アバター種別</text>
+  <text class="t small" x="350" y="214">他参加者の状態・ホップ判定</text>
+  <text class="t small" x="350" y="232">WASD移動の購読</text>
+  <text class="t dc"    x="350" y="252">データチャネル: position</text>
+
+  <rect class="store" x="330" y="286" width="250" height="86" rx="8"/>
+  <text class="t name"  x="350" y="312">ChatState.jsx</text>
+  <text class="t small" x="350" y="332">メッセージ配列を常時保持</text>
+  <text class="t small" x="350" y="350">（パネルを閉じても消えない）</text>
+  <text class="t dc"    x="350" y="366">データチャネル: chat</text>
+
+  <path class="tree" d="M260,191 L330,191"/>
+  <path class="tree" d="M150,224 L150,329 L330,329"/>
+
+  <!-- views -->
+  <rect class="view" x="650" y="150" width="270" height="90" rx="8"/>
+  <text class="t name"  x="668" y="174">TentView.jsx</text>
+  <text class="t small" x="668" y="194">2.5D描画（react-three-fiber）</text>
+  <text class="t small" x="668" y="212">自分の移動は ref + useFrame</text>
+  <text class="t small" x="668" y="230">他人は damp で補間</text>
+
+  <rect class="view" x="650" y="258" width="270" height="66" rx="8"/>
+  <text class="t name"  x="668" y="282">SpatialAudio.jsx</text>
+  <text class="t small" x="668" y="302">距離で音量・左右でパン</text>
+  <text class="t small" x="668" y="318">Web Audio API</text>
+
+  <rect class="view" x="650" y="342" width="270" height="52" rx="8"/>
+  <text class="t name"  x="668" y="366">ChatPanel.jsx</text>
+  <text class="t small" x="668" y="384">日本語チャットの見た目のみ</text>
+
+  <path class="flow" d="M580,190 L643,190" marker-end="url(#g3)"/>
+  <text class="t lbl" x="586" y="182">位置を読む</text>
+
+  <path class="flow" d="M580,220 L612,220 L612,286 L643,286" marker-end="url(#g3)"/>
+  <text class="t lbl" x="586" y="272">距離を読む</text>
+
+  <path class="flow" d="M580,340 L612,340 L612,366 L643,366" marker-end="url(#g3)"/>
+
+  <path class="flow" d="M785,240 L785,254" marker-end="url(#g3)"/>
+
+  <!-- screen share -->
+  <rect class="view" x="40" y="418" width="330" height="90" rx="8"/>
+  <text class="t name"  x="58" y="442">ScreenShareStage.jsx</text>
+  <text class="t small" x="58" y="462">共有中の映像を表示</text>
+  <text class="t name"  x="58" y="486">DrawingOverlay.jsx</text>
+  <text class="t small" x="58" y="504">ペン／丸／消しゴム</text>
+
+  <rect class="store" x="420" y="418" width="230" height="90" rx="8"/>
+  <text class="t name"  x="438" y="442">ストロークの同期</text>
+  <text class="t dc"    x="438" y="464">データチャネル: draw</text>
+  <text class="t small" x="438" y="484">描画中はロスあり配信</text>
+  <text class="t small" x="438" y="502">確定はロスなし配信</text>
+
+  <path class="flow" d="M370,463 L413,463" marker-end="url(#g3)"/>
+
+  <!-- note -->
+  <rect x="40" y="534" width="880" height="152" rx="10" fill="#ffffff" stroke="#b3a892" stroke-width="1.5"/>
+  <text class="t name"  x="62" y="560">状態を分けている理由</text>
+  <text class="t body"  x="62" y="582">・ChatState と TentState は CallScreen の直下に常時マウントする。パネルの開閉で状態が消えたり、</text>
+  <text class="t body"  x="74" y="602">　閉じている間の受信を取りこぼしたりしないため</text>
+  <text class="t body"  x="62" y="626">・位置の「正」は TentState。ただし自分の見た目の移動だけは TentView 側の ref で動かす</text>
+  <text class="t body"  x="74" y="646">　（React の再描画と描画ループがずれるとガクつくため）</text>
+  <text class="t body"  x="62" y="670">・3つのデータチャネル（position / chat / draw）はいずれも LiveKit 経由で、サーバーには保存されない</text>
+</svg>
